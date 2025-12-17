@@ -7,6 +7,7 @@ import socketService from '@/lib/socket';
 import { useChatStore } from '@/store/chatStore';
 import Sidebar from './Sidebar';
 import ChatWindow from './ChatWindow';
+import NotificationBell from '../NotificationBell';
 
 const toast = {
   success: (msg: string) => console.log('✓', msg),
@@ -80,13 +81,33 @@ export default function ChatLayout() {
             }
           });
 
+          // Listen for typing indicators
+          socket.on('user:typing', ({ userId, conversationId, username, isTyping }) => {
+            useChatStore.getState().setTyping(conversationId, userId, isTyping);
+          });
+
           // Send heartbeat every 4 minutes
           const heartbeatInterval = setInterval(() => {
             socket.emit('heartbeat');
           }, 240000);
 
+          // Refresh token and reconnect every 10 minutes to prevent expiration
+          const tokenRefreshInterval = setInterval(async () => {
+            try {
+              const newToken = await getToken();
+              if (newToken) {
+                console.log('🔄 Refreshing Socket.IO connection with new token...');
+                socketService.disconnect();
+                socketService.connect(newToken);
+              }
+            } catch (error) {
+              console.error('Token refresh failed:', error);
+            }
+          }, 600000); // 10 minutes
+
           return () => {
             clearInterval(heartbeatInterval);
+            clearInterval(tokenRefreshInterval);
             socketService.disconnect();
           };
         }
@@ -103,7 +124,13 @@ export default function ChatLayout() {
   return (
     <div className="flex h-screen overflow-hidden bg-white dark:bg-gray-900">
       <Sidebar />
-      <ChatWindow />
+      <div className="flex-1 flex flex-col">
+        {/* Top Bar with Notification Bell */}
+        <div className="flex items-center justify-end p-4 border-b border-gray-200 dark:border-gray-700">
+          <NotificationBell />
+        </div>
+        <ChatWindow />
+      </div>
     </div>
   );
 }

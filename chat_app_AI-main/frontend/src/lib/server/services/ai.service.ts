@@ -88,7 +88,7 @@ export class AIService {
 
       // Create model with system instruction
       const model = genAI.getGenerativeModel({
-        model: "gemini-flash-latest",
+        model: "gemini-1.5-flash-latest",
         systemInstruction: SYSTEM_RULES,
       });
 

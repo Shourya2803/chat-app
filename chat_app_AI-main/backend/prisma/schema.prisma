@@ -31,6 +31,7 @@ model User {
   fcmTokens         FcmToken[]
   messageReads      MessageRead[] @relation("MessageReads")
   messageReactions  MessageReaction[] @relation("MessageReactions")
+  notifications     Notification[]
 
   @@map("users")
 }
@@ -148,4 +149,26 @@ model FcmToken {
   @@index([userId, isActive], name: "idx_fcm_tokens_user")
   @@index([isActive], name: "idx_fcm_tokens_active")
   @@map("fcm_tokens")
+}
+
+// NOTIFICATIONS - In-app notification center
+model Notification {
+  id          String   @id @default(uuid())
+  userId      String   @map("user_id")
+  type        String   // 'message', 'reaction', 'mention', 'system'
+  title       String
+  body        String
+  actionUrl   String?  @map("action_url") // Link to conversation or message
+  metadata    Json?    // Additional data (senderId, messageId, etc.)
+  isRead      Boolean  @default(false) @map("is_read")
+  readAt      DateTime? @map("read_at")
+  createdAt   DateTime @default(now()) @map("created_at")
+  updatedAt   DateTime @updatedAt @map("updated_at")
+
+  // Relations
+  user        User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId, isRead, createdAt(sort: Desc)], name: "idx_notifications_user")
+  @@index([userId, createdAt(sort: Desc)], name: "idx_notifications_user_recent")
+  @@map("notifications")
 }

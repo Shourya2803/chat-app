@@ -14,13 +14,22 @@ import { MessageSquare, Sparkles } from 'lucide-react';
 export default function ChatWindow() {
   const { user } = useUser();
   const api = useApiClient();
-  const { activeConversationId, conversations, messages, setMessages, resetUnread } = useChatStore();
+  const { activeConversationId, conversations, messages, setMessages, resetUnread, typingUsers } = useChatStore();
   const { toneEnabled, toggleTone } = useUIStore();
   const [loading, setLoading] = useState(false);
   const [currentDbUserId, setCurrentDbUserId] = useState<string>('');
 
   const activeConversation = conversations.find(
     (c) => c.conversation_id === activeConversationId
+  );
+
+  // Get typing users for active conversation
+  const typingInConversation = activeConversationId 
+    ? typingUsers[activeConversationId] || [] 
+    : [];
+  
+  const isOtherUserTyping = typingInConversation.some(
+    (userId) => userId !== currentDbUserId
   );
 
   // Get database user ID
@@ -122,7 +131,18 @@ export default function ChatWindow() {
                   `${activeConversation?.other_user.first_name} ${activeConversation?.other_user.last_name}`}
               </h2>
               <p className="text-sm text-gray-500 dark:text-gray-400">
-                {activeConversation?.other_user.status || 'offline'}
+                {isOtherUserTyping ? (
+                  <span className="flex items-center gap-1 text-primary-600 dark:text-primary-400">
+                    <span className="animate-pulse">typing</span>
+                    <span className="flex gap-0.5">
+                      <span className="w-1 h-1 bg-current rounded-full animate-bounce" style={{ animationDelay: '0ms' }}></span>
+                      <span className="w-1 h-1 bg-current rounded-full animate-bounce" style={{ animationDelay: '150ms' }}></span>
+                      <span className="w-1 h-1 bg-current rounded-full animate-bounce" style={{ animationDelay: '300ms' }}></span>
+                    </span>
+                  </span>
+                ) : (
+                  activeConversation?.other_user.status || 'offline'
+                )}
               </p>
             </div>
           </div>

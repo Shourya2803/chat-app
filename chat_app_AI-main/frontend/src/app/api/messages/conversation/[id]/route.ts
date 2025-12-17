@@ -1,10 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { auth } from '@clerk/nextjs';
 import prisma from '@/lib/server/database/prisma';
-import { MessageQueue } from '@/lib/server/workers/message.queue';
-
-// Initialize message queue
-const messageQueue = new MessageQueue();
 
 export const dynamic = 'force-dynamic';
 

@@ -24,26 +24,27 @@ function initializeFirebase() {
   }
 
   try {
-    const serviceAccount = process.env.FIREBASE_SERVICE_ACCOUNT_KEY;
     const projectId = process.env.FIREBASE_PROJECT_ID;
+    const privateKey = process.env.FIREBASE_PRIVATE_KEY;
+    const clientEmail = process.env.FIREBASE_CLIENT_EMAIL;
 
-    if (!serviceAccount || !projectId) {
+    if (!projectId || !privateKey || !clientEmail) {
       logger.warn(
         'Firebase credentials not found. FCM notifications will be disabled.'
       );
       return;
     }
 
-    // Parse service account JSON
-    const serviceAccountParsed = JSON.parse(serviceAccount);
-
     admin.initializeApp({
-      credential: admin.credential.cert(serviceAccountParsed),
-      projectId: projectId,
+      credential: admin.credential.cert({
+        projectId: projectId,
+        privateKey: privateKey.replace(/\\n/g, '\n'),
+        clientEmail: clientEmail,
+      }),
     });
 
     firebaseInitialized = true;
-    logger.info('Firebase Admin SDK initialized successfully');
+    logger.info('✅ Firebase Admin SDK initialized successfully');
   } catch (error) {
     logger.error('Failed to initialize Firebase Admin SDK', {
       error: error instanceof Error ? error.message : 'Unknown error',

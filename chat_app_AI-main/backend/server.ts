@@ -18,9 +18,11 @@ import { typingIndicatorsService } from './src/services/typing.service';
 import { messageMutationService } from './src/services/message-mutation.service';
 import { messageReactionsService } from './src/services/reactions.service';
 import { fcmNotificationService } from './src/services/fcm.service';
+import { notificationService } from './src/services/notification.service';
 
-// Import cron routes
+// Import routes
 import cronRoutes from './src/routes/cron.routes';
+import notificationRoutes from './src/routes/notification.routes';
 
 dotenv.config();
 
@@ -86,8 +88,9 @@ app.get('/', (req, res) => {
   });
 });
 
-// Mount cron routes
+// Mount routes
 app.use('/api/cron', cronRoutes);
+app.use('/api/notifications', notificationRoutes);
 
 // ========================================
 // SOCKET.IO SERVER SETUP
@@ -307,23 +310,40 @@ io.on('connection', (socket) => {
       
       logger.info(`📤 Message broadcast to conversation:${data.conversationId}`);
 
-      // Send FCM notification if receiver is offline
+      // Create notification (in-app + FCM + email)
       try {
-        await fcmNotificationService.sendNotificationIfOffline(
-          data.receiverId,
-          {
-            title: sender.username || sender.firstName || 'New Message',
-            body: finalContent.substring(0, 100), // Truncate for notification
-          },
-          {
-            type: 'new-message',
+        const senderName = sender.username || sender.firstName || 'Someone';
+        const notification = await notificationService.createNotification({
+          userId: data.receiverId,
+          type: 'message',
+          title: `New message from ${senderName}`,
+          body: finalContent.substring(0, 100),
+          actionUrl: `/chat?conversation=${data.conversationId}`,
+          metadata: {
             messageId: message.id,
             conversationId: data.conversationId,
             senderId: sender.id,
-          }
-        );
-      } catch (fcmError) {
-        logger.error('FCM notification failed (non-blocking):', fcmError);
+            senderName,
+          },
+          sendPush: true,
+          sendEmail: false, // Set to true if you want email for every message
+        });
+
+        // Emit real-time notification to receiver
+        if (notification) {
+          io.to(`user:${data.receiverId}`).emit('new-notification', {
+            id: notification.id,
+            type: notification.type,
+            title: notification.title,
+            body: notification.body,
+            actionUrl: notification.actionUrl,
+            isRead: notification.isRead,
+            createdAt: notification.createdAt,
+            metadata: notification.metadata,
+          });
+        }
+      } catch (notifError) {
+        logger.error('Notification failed (non-blocking):', notifError);
       }
     } catch (error) {
       logger.error('❌ Send message error:', error);

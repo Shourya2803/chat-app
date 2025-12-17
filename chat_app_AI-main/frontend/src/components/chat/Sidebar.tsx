@@ -196,6 +196,11 @@ export default function Sidebar() {
                             {conv.other_user.status === 'online' && (
                               <span className="text-xs text-green-600 dark:text-green-400">●</span>
                             )}
+                            {unreadCounts[conv.conversation_id] > 0 && (
+                              <span className="inline-flex items-center justify-center min-w-[20px] h-5 px-1.5 text-xs font-bold text-white bg-green-500 rounded-full">
+                                {unreadCounts[conv.conversation_id] > 99 ? '99+' : unreadCounts[conv.conversation_id]}
+                              </span>
+                            )}
                           </div>
                           {conv.last_message && (
                             <span className="text-xs text-gray-500 dark:text-gray-400">
@@ -207,13 +212,6 @@ export default function Sidebar() {
                           <p className="text-sm text-gray-600 dark:text-gray-400 truncate">
                             {conv.last_message.content}
                           </p>
-                        )}
-                        {unreadCounts[conv.conversation_id] > 0 && (
-                          <div className="mt-1">
-                            <span className="inline-block px-2 py-0.5 text-xs font-semibold text-white bg-primary-600 rounded-full">
-                              {unreadCounts[conv.conversation_id]}
-                            </span>
-                          </div>
                         )}
                       </div>
                     </div>
