@@ -1,0 +1,11 @@
+# Backend .gitignore
+node_modules/
+dist/
+.env
+.env.local
+*.log
+.DS_Store
+
+# Prisma
+prisma/migrations/*
+!prisma/migrations/migration_lock.toml

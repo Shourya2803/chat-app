@@ -1,0 +1,94 @@
+// This is your Prisma schema file,
+// learn more about it in the docs: https://pris.ly/d/prisma-schema
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+model User {
+  id                String   @id @default(uuid())
+  clerkId           String   @unique @map("clerk_id")
+  email             String   @unique
+  username          String?
+  firstName         String?  @map("first_name")
+  lastName          String?  @map("last_name")
+  avatarUrl         String?  @map("avatar_url")
+  status            String   @default("offline")
+  lastSeen          DateTime @default(now()) @map("last_seen")
+  createdAt         DateTime @default(now()) @map("created_at")
+  updatedAt         DateTime @updatedAt @map("updated_at")
+
+  // Relations
+  sentMessages      Message[] @relation("SentMessages")
+  receivedMessages  Message[] @relation("ReceivedMessages")
+  conversations1    Conversation[] @relation("User1Conversations")
+  conversations2    Conversation[] @relation("User2Conversations")
+  fcmTokens         FcmToken[]
+
+  @@map("users")
+}
+
+model Conversation {
+  id              String   @id @default(uuid())
+  user1Id         String   @map("user1_id")
+  user2Id         String   @map("user2_id")
+  lastMessageAt   DateTime @default(now()) @map("last_message_at")
+  createdAt       DateTime @default(now()) @map("created_at")
+  updatedAt       DateTime @updatedAt @map("updated_at")
+
+  // Relations
+  user1           User     @relation("User1Conversations", fields: [user1Id], references: [id], onDelete: Cascade)
+  user2           User     @relation("User2Conversations", fields: [user2Id], references: [id], onDelete: Cascade)
+  messages        Message[]
+
+  @@unique([user1Id, user2Id], name: "unique_conversation")
+  @@map("conversations")
+}
+
+model Message {
+  id              String   @id @default(uuid())
+  conversationId  String   @map("conversation_id")
+  senderId        String   @map("sender_id")
+  receiverId      String   @map("receiver_id")
+  content         String
+  originalContent String?  @map("original_content")
+  messageType     String   @default("text") @map("message_type")
+  mediaUrl        String?  @map("media_url")
+  toneApplied     String?  @map("tone_applied")
+  status          String   @default("sent")
+  isRead          Boolean  @default(false) @map("is_read")
+  readAt          DateTime? @map("read_at")
+  createdAt       DateTime @default(now()) @map("created_at")
+  updatedAt       DateTime @updatedAt @map("updated_at")
+
+  // Relations
+  conversation    Conversation @relation(fields: [conversationId], references: [id], onDelete: Cascade)
+  sender          User         @relation("SentMessages", fields: [senderId], references: [id], onDelete: Cascade)
+  receiver        User         @relation("ReceivedMessages", fields: [receiverId], references: [id], onDelete: Cascade)
+
+  @@index([conversationId, createdAt(sort: Desc)], name: "idx_messages_conversation")
+  @@index([senderId, createdAt(sort: Desc)], name: "idx_messages_sender")
+  @@index([receiverId, createdAt(sort: Desc)], name: "idx_messages_receiver")
+  @@index([receiverId, isRead, createdAt(sort: Desc)], name: "idx_messages_unread")
+  @@map("messages")
+}
+
+model FcmToken {
+  id          String   @id @default(uuid())
+  userId      String   @map("user_id")
+  token       String
+  deviceType  String?  @map("device_type")
+  createdAt   DateTime @default(now()) @map("created_at")
+  updatedAt   DateTime @updatedAt @map("updated_at")
+
+  // Relations
+  user        User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, token], name: "unique_user_token")
+  @@map("fcm_tokens")
+}
