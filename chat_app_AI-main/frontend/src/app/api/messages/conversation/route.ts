@@ -1,91 +1,23 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { auth } from '@clerk/nextjs';
-import prisma from '@/lib/server/database/prisma';
+
+const BACKEND_URL = process.env.BACKEND_URL || process.env.NEXT_PUBLIC_API_URL || 'http://localhost:4000';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
 
-export async function POST(request: NextRequest) {
-  try {
-    const { userId } = auth();
-    if (!userId) {
-      return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
-    }
+async function proxy(req: NextRequest) {
+  const backendPath = `${BACKEND_URL}${req.nextUrl.pathname}${req.nextUrl.search}`;
+  const headers: Record<string, string> = {};
+  for (const [k, v] of req.headers) if (v) headers[k] = v;
 
-    const body = await request.json();
-    const { userId: otherUserId, otherUserId: altOtherUserId } = body;
-    const targetUserId = otherUserId || altOtherUserId;
-
-    if (!targetUserId) {
-      return NextResponse.json(
-        { error: 'Other user ID is required' },
-        { status: 400 }
-      );
-    }
-
-    // Get current user's database ID
-    const currentUser = await prisma.user.findUnique({
-      where: { clerkId: userId },
-      select: { id: true },
-    });
-
-    if (!currentUser) {
-      return NextResponse.json(
-        { error: 'User not found' },
-        { status: 404 }
-      );
-    }
-
-    // Get other user's database ID
-    const otherUser = await prisma.user.findUnique({
-      where: { id: targetUserId },
-      select: { id: true },
-    });
-
-    if (!otherUser) {
-      return NextResponse.json(
-        { error: 'Other user not found' },
-        { status: 404 }
-      );
-    }
-
-    // Check if conversation exists
-    const existing = await prisma.conversation.findFirst({
-      where: {
-        OR: [
-          { user1Id: currentUser.id, user2Id: otherUser.id },
-          { user1Id: otherUser.id, user2Id: currentUser.id },
-        ],
-      },
-    });
-
-    if (existing) {
-      return NextResponse.json({ 
-        data: { conversationId: existing.id },
-        success: true 
-      });
-    }
-
-    // Create new conversation
-    const conversation = await prisma.conversation.create({
-      data: {
-        user1Id: currentUser.id,
-        user2Id: otherUser.id,
-      },
-    });
-
-    return NextResponse.json({ 
-      data: { conversationId: conversation.id },
-      success: true 
-    }, { status: 201 });
-  } catch (error: any) {
-    console.error('Create conversation error:', error);
-    return NextResponse.json(
-      { 
-        error: 'Internal server error', 
-        details: process.env.NODE_ENV === 'development' ? error.message : undefined 
-      },
-      { status: 500 }
-    );
-  }
+  const res = await fetch(backendPath, { method: req.method, headers, body: req.method !== 'GET' && req.method !== 'HEAD' ? await req.arrayBuffer() : undefined });
+  const body = await res.arrayBuffer();
+  const responseHeaders = new Headers(res.headers);
+  responseHeaders.delete('transfer-encoding');
+  return new NextResponse(body, { status: res.status, headers: responseHeaders });
 }
+
+export const GET = proxy;
+export const POST = proxy;
+export const PUT = proxy;
+export const DELETE = proxy;

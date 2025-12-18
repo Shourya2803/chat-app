@@ -1,84 +1,32 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { auth, currentUser } from '@clerk/nextjs';
-import prisma from '@/lib/server/database/prisma';
+
+const BACKEND_URL = process.env.BACKEND_URL || process.env.NEXT_PUBLIC_API_URL || 'http://localhost:4000';
 
 export const dynamic = 'force-dynamic';
 
-export async function POST() {
-  try {
-    const { userId } = auth();
-    const user = await currentUser();
+async function proxy(req: NextRequest) {
+  const backendPath = `${BACKEND_URL}${req.nextUrl.pathname}`;
 
-    if (!userId || !user) {
-      return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
-    }
-
-    // Check if user exists first
-    const existingUser = await prisma.user.findUnique({
-      where: { clerkId: userId },
-    });
-
-    if (existingUser) {
-      // Update existing user
-      await prisma.user.update({
-        where: { clerkId: userId },
-        data: {
-          username: user.username || null,
-          firstName: user.firstName || null,
-          lastName: user.lastName || null,
-          avatarUrl: user.imageUrl || null,
-          // Don't update email to avoid constraint conflicts
-        },
-      });
-    } else {
-      // Create new user only if doesn't exist
-      try {
-        await prisma.user.create({
-          data: {
-            clerkId: userId,
-            email: user.emailAddresses[0]?.emailAddress || '',
-            username: user.username || null,
-            firstName: user.firstName || null,
-            lastName: user.lastName || null,
-            avatarUrl: user.imageUrl || null,
-          },
-        });
-      } catch (createError: any) {
-        // If user was just created by another request (race condition), update instead
-        if (createError.code === 'P2002') {
-          await prisma.user.update({
-            where: { clerkId: userId },
-            data: {
-              username: user.username || null,
-              firstName: user.firstName || null,
-              lastName: user.lastName || null,
-              avatarUrl: user.imageUrl || null,
-            },
-          });
-        } else {
-          throw createError;
-        }
-      }
-    }
-
-    return NextResponse.json({
-      success: true,
-      message: 'User synced successfully',
-    });
-  } catch (error: any) {
-    console.error('Auth sync error details:', {
-      message: error.message,
-      code: error.code,
-      meta: error.meta,
-      stack: error.stack
-    });
-    return NextResponse.json(
-      { 
-        error: 'Internal server error',
-        details: process.env.NODE_ENV === 'development' ? error.message : undefined,
-        code: process.env.NODE_ENV === 'development' ? error.code : undefined
-      },
-      { status: 500 }
-    );
+  const headers: Record<string, string> = {};
+  for (const [key, value] of req.headers) {
+    if (value) headers[key] = value;
   }
+
+  const res = await fetch(backendPath, {
+    method: req.method,
+    headers,
+    body: req.method !== 'GET' && req.method !== 'HEAD' ? await req.arrayBuffer() : undefined,
+  });
+
+  const body = await res.arrayBuffer();
+  const responseHeaders = new Headers(res.headers);
+  responseHeaders.delete('transfer-encoding');
+
+  return new NextResponse(body, { status: res.status, headers: responseHeaders });
 }
+
+export const GET = proxy;
+export const POST = proxy;
+export const PUT = proxy;
+export const DELETE = proxy;
+export const PATCH = proxy;
