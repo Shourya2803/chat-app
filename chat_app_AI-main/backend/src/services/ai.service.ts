@@ -73,10 +73,6 @@ export class AIService {
     }
 
     try {
-      const wordCount = this.countWords(text);
-      const minWords = Math.floor(wordCount * 0.9); // 90% of original
-      const maxWords = wordCount; // 100% of original
-
       const toneInstruction: Record<ToneType, string> = {
         professional: "Use a standard professional corporate tone.",
         polite:
@@ -87,32 +83,28 @@ export class AIService {
           "Automatically choose the most appropriate professional tone based on context.",
       };
 
-      // Create model with system instruction
-      const modelsToTry = ["gemini-flash-latest", "gemini-1.5-flash", "gemini-pro"];
+      // Use only universally supported models for generateContent in v1beta
+      const modelsToTry = [
+        "gemini-flash-latest",
+        "gemini-2.0-flash",
+        "gemini-pro-latest"
+      ];
       let lastError = "";
 
       for (const modelName of modelsToTry) {
         try {
-          const model = genAI.getGenerativeModel({
-            model: modelName,
-            systemInstruction: SYSTEM_RULES,
-          });
+          const model = genAI.getGenerativeModel({ model: modelName });
 
-          logger.info(`🤖 [PRO-VER: 1.7] Trying model: ${modelName} for tone: ${tone}`);
+          logger.info(`🤖 AI: Attempting conversion with model: ${modelName}`);
 
-          const result = await model.generateContent(`${toneInstruction[tone]}
+          // Use a simple string prompt for universal compatibility
+          const result = await model.generateContent(`${SYSTEM_RULES}\n\n${toneInstruction[tone]}\n\nRewrite the following message to be more professional but maintain approximately the same length:\n\n${text}`);
 
-IMPORTANT: The original message has ${wordCount} words. Your rewritten message MUST be between ${minWords} and ${maxWords} words (90-100% of the original length). Keep it concise and maintain the same message length.
+          // ✅ FIXED: result.response.text() - NO extra await!
+          const convertedText = result.response.text()?.trim();
 
-Rewrite the following message:
-
-${text}`);
-
-          const response = await result.response;
-          const convertedText = response.text().trim();
-
-          if (convertedText) {
-            logger.info(`✅ AI tone conversion successful with model: ${modelName}`);
+          if (convertedText && convertedText.length > 0) {
+            logger.info(`✅ AI: Tone conversion successful with [${modelName}]`);
             return {
               success: true,
               convertedText,
@@ -121,12 +113,13 @@ ${text}`);
             };
           }
         } catch (err: any) {
-          lastError = err.message || "Unknown error";
-          if (lastError.includes("404") || lastError.includes("not found")) {
-            logger.warn(`⚠️ Model ${modelName} not found, trying next...`);
-            continue;
+          const errorMsg = err.message || "Unknown error";
+          logger.warn(`⚠️ AI: Model [${modelName}] failed: ${errorMsg}`);
+
+          // Continue to next model unless quota/auth error
+          if (errorMsg.includes("429") || errorMsg.includes("401") || errorMsg.includes("403")) {
+            throw err;
           }
-          throw err; // Re-throw other errors (like auth/quota)
         }
       }
 

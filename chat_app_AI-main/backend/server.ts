@@ -257,13 +257,13 @@ io.on('connection', (socket) => {
 
           if (result.success && result.convertedText) {
             finalContent = result.convertedText;
-            logger.info('✅ Tone conversion successful');
+            logger.info('✅ AI: Tone conversion successful');
+            logger.info(`📝 AI: [Original: "${originalContent}"] -> [Final: "${finalContent}"]`);
           } else {
-            logger.warn(`⚠️ Tone conversion failed: ${result.error || 'Empty response'}, using original message`);
+            logger.warn(`⚠️ AI: Tone conversion failed: ${result.error || 'Empty response'}`);
           }
         } catch (error: any) {
-          logger.error(`❌ Tone conversion error: ${error.message}`);
-          logger.warn('⚠️ Using original message due to error');
+          logger.error(`❌ AI: Tone conversion error: ${error.message}`);
         }
       }
 
@@ -317,13 +317,19 @@ io.on('connection', (socket) => {
 
       // Emit to all users in global group, customized for each recipient
       const sockets = await io.in('conversation:global-group').fetchSockets();
+      logger.info(`📢 Broadcasting to ${sockets.length} sockets in global-group`);
+
       sockets.forEach(s => {
         const recipientIsAdmin = s.data.role === 'ADMIN';
         const isSender = s.data.userId === sender.id;
+        const sentContent = recipientIsAdmin || isSender ? originalContent : finalContent;
+        const contentType = recipientIsAdmin || isSender ? 'ORIGINAL' : 'AI-REFINED';
+
+        logger.info(`   ➡️  Recipient: ${s.data.username || 'Unknown'} [Role: ${s.data.role}] [isSender: ${isSender}] Sending: ${contentType}`);
 
         s.emit('new-message', {
           ...formattedMessage,
-          content: recipientIsAdmin || isSender ? originalContent : finalContent,
+          content: sentContent,
           sender_username: sender.username || 'System'
         });
       });
