@@ -1,11 +1,13 @@
 
 
+import dotenv from 'dotenv';
+dotenv.config();
+
 import express from 'express';
 import { createServer } from 'http';
 import { Server as SocketIOServer } from 'socket.io';
 import compression from 'compression';
 import cors from 'cors';
-import dotenv from 'dotenv';
 import { clerkClient } from '@clerk/clerk-sdk-node';
 
 // Import backend services
@@ -27,7 +29,7 @@ import usersRoutes from './src/routes/users.routes';
 import authRoutes from './src/routes/auth.routes';
 import messagesRoutes from './src/routes/messages.routes';
 
-dotenv.config();
+// Environment variables already loaded at the top
 
 const PORT = parseInt(process.env.PORT || '4000', 10);
 const NODE_ENV = process.env.NODE_ENV || 'development';

@@ -95,7 +95,7 @@ export class AIService {
         try {
           const model = genAI.getGenerativeModel({ model: modelName });
 
-          logger.info(`🤖 AI: Attempting conversion with model: ${modelName}`);
+          logger.info(`🤖 AI: Attempting conversion with model: ${modelName} (Key Length: ${GEMINI_API_KEY.length})`);
 
           // Use a simple string prompt for universal compatibility
           const result = await model.generateContent(`${SYSTEM_RULES}\n\n${toneInstruction[tone]}\n\nRewrite the following message to be more professional but maintain approximately the same length:\n\n${text}`);
@@ -113,11 +113,11 @@ export class AIService {
             };
           }
         } catch (err: any) {
-          const errorMsg = err.message || "Unknown error";
-          logger.warn(`⚠️ AI: Model [${modelName}] failed: ${errorMsg}`);
+          lastError = err.message || "Unknown error";
+          logger.warn(`⚠️ AI: Model [${modelName}] failed in production: ${lastError}`);
 
           // Continue to next model unless quota/auth error
-          if (errorMsg.includes("429") || errorMsg.includes("401") || errorMsg.includes("403")) {
+          if (lastError.includes("429") || lastError.includes("401") || lastError.includes("403")) {
             throw err;
           }
         }
@@ -127,7 +127,7 @@ export class AIService {
         success: false,
         originalText: text,
         tone,
-        error: `All models failed. Last error: ${lastError}`,
+        error: `All models failed in production. Last error: ${lastError}`,
       };
     } catch (error: any) {
       logger.error("❌ Tone conversion failed:", {
