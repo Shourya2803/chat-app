@@ -5,6 +5,7 @@ import { useAuth, useUser } from '@clerk/nextjs';
 import { useApiClient } from '@/lib/api';
 import socketService from '@/lib/socket';
 import { useChatStore } from '@/store/chatStore';
+import { requestForToken, onMessageListener } from '@/lib/firebaseClient';
 import Sidebar from './Sidebar';
 import ChatWindow from './ChatWindow';
 import NotificationBell from '../NotificationBell';
@@ -18,12 +19,12 @@ export default function ChatLayout() {
   const { getToken } = useAuth();
   const { user } = useUser();
   const api = useApiClient();
-  const { 
-    setUserOnline, 
-    setUserOffline, 
-    addMessage, 
+  const {
+    setUserOnline,
+    setUserOffline,
+    addMessage,
     incrementUnread,
-    activeConversationId 
+    activeConversationId
   } = useChatStore();
 
   useEffect(() => {
@@ -53,12 +54,34 @@ export default function ChatLayout() {
         // Connect to Socket.IO only on platforms with custom server support
         const token = await getToken();
         if (token) {
+          // Initialize FCM and register token
+          requestForToken().then(async (fcmToken) => {
+            if (fcmToken) {
+              console.log('Got FCM token:', fcmToken);
+              try {
+                // Register token with backend
+                await api.post('/notifications/register-token', {
+                  token: fcmToken,
+                  deviceName: navigator.userAgent || 'Web Browser'
+                });
+                console.log('FCM token registered with backend');
+              } catch (err) {
+                console.error('Failed to register FCM token with backend:', err);
+              }
+            }
+          });
+
+          // Listen for foreground messages
+          onMessageListener().then((payload: any) => {
+            toast.success(`New Message: ${payload?.notification?.title}`);
+          });
+
           const socket = socketService.connect(token);
 
           // Listen for new messages
           socket.on('new-message', (message) => {
             addMessage(message);
-            
+
             // Increment unread if not in active conversation
             if (message.conversation_id !== activeConversationId) {
               incrementUnread(message.conversation_id);
@@ -117,7 +140,14 @@ export default function ChatLayout() {
         }
       } catch (error: any) {
         console.error('Failed to initialize app:', error);
+        const status = error?.response?.status;
         const errorMsg = error?.response?.data?.error || error?.message || 'Failed to connect to chat server';
+
+        if (status === 404) {
+          console.error('Received 404 from /api/auth/sync. This usually means the frontend is proxying to the wrong backend or the backend routes are not available.');
+          console.error('If your backend is deployed (Render), set `NEXT_PUBLIC_API_URL` or `BACKEND_URL` in frontend/.env.local to the backend base URL (https://...).');
+        }
+
         toast.error(errorMsg);
       }
     };

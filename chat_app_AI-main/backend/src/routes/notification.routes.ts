@@ -1,15 +1,12 @@
-import { Router, Request, Response } from 'express';
+import { Router, Response } from 'express';
 import { notificationService } from '../services/notification.service';
 import { logger } from '../utils/logger';
-
-// Extend Express Request type to include user
-interface AuthRequest extends Request {
-  user?: {
-    userId: string;
-  };
-}
+import { authenticate, AuthRequest } from '../middleware/auth.middleware';
 
 const router = Router();
+
+// Apply authentication middleware to all notification routes
+router.use(authenticate);
 
 /**
  * GET /api/notifications
@@ -17,10 +14,7 @@ const router = Router();
  */
 router.get('/', async (req: AuthRequest, res: Response) => {
   try {
-    const userId = req.user?.userId;
-    if (!userId) {
-      return res.status(401).json({ error: 'Unauthorized' });
-    }
+    const userId = req.user!.userId; // Guaranteed by middleware
 
     const limit = parseInt(req.query.limit as string) || 50;
     const offset = parseInt(req.query.offset as string) || 0;

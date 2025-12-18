@@ -18,6 +18,7 @@ export async function GET(
     return new NextResponse(body, { status: res.status, headers: responseHeaders });
   } catch (error) {
     console.error('Proxy get user error:', error);
-    return NextResponse.json({ error: 'Internal server error' }, { status: 500 });
+    const errorMessage = error instanceof Error ? error.message : String(error);
+    return NextResponse.json({ error: 'Backend unreachable', details: errorMessage }, { status: 502 });
   }
 }

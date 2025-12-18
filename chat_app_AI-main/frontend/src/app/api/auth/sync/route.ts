@@ -11,18 +11,21 @@ async function proxy(req: NextRequest) {
   for (const [key, value] of req.headers) {
     if (value) headers[key] = value;
   }
+  try {
+    const res = await fetch(backendPath, {
+      method: req.method,
+      headers,
+      body: req.method !== 'GET' && req.method !== 'HEAD' ? await req.arrayBuffer() : undefined,
+    });
 
-  const res = await fetch(backendPath, {
-    method: req.method,
-    headers,
-    body: req.method !== 'GET' && req.method !== 'HEAD' ? await req.arrayBuffer() : undefined,
-  });
+    const body = await res.arrayBuffer();
+    const responseHeaders = new Headers(res.headers);
+    responseHeaders.delete('transfer-encoding');
 
-  const body = await res.arrayBuffer();
-  const responseHeaders = new Headers(res.headers);
-  responseHeaders.delete('transfer-encoding');
-
-  return new NextResponse(body, { status: res.status, headers: responseHeaders });
+    return new NextResponse(body, { status: res.status, headers: responseHeaders });
+  } catch (err: any) {
+    return NextResponse.json({ error: 'Backend unreachable', details: String(err?.message || err) }, { status: 502 });
+  }
 }
 
 export const GET = proxy;

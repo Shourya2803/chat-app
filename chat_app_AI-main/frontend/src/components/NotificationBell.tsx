@@ -4,6 +4,7 @@ import { useEffect, useState, useRef } from 'react';
 import { Bell, X, Check, CheckCheck } from 'lucide-react';
 import { useAuth, useUser } from '@clerk/nextjs';
 import socket from '@/lib/socket';
+import { useApiClient } from '@/lib/api';
 import { formatDistanceToNow } from 'date-fns';
 
 interface Notification {
@@ -20,6 +21,7 @@ interface Notification {
 export default function NotificationBell() {
   const { getToken } = useAuth();
   const { user } = useUser();
+  const api = useApiClient();
   const [notifications, setNotifications] = useState<Notification[]>([]);
   const [unreadCount, setUnreadCount] = useState(0);
   const [isOpen, setIsOpen] = useState(false);
@@ -28,29 +30,23 @@ export default function NotificationBell() {
 
   // Fetch notifications
   const fetchNotifications = async () => {
+    if (!user) return; // Don't fetch if no user
+
     try {
       setLoading(true);
       const token = await getToken();
 
       if (!token) {
-        console.warn('No auth token available from Clerk; notification request may return 401');
+        console.log('No auth token available, skipping notification fetch');
         setLoading(false);
         return;
       }
 
-      // Fetch from backend notification API
-      const notifResponse = await fetch(`${process.env.NEXT_PUBLIC_API_URL || 'http://localhost:4000'}/api/notifications`, {
-        headers: {
-          'Authorization': `Bearer ${token}`,
-        },
-        credentials: 'include',
-      });
-
-      if (notifResponse.ok) {
-        const data = await notifResponse.json();
-        setNotifications(data.notifications || []);
-        setUnreadCount(data.unreadCount || 0);
-      }
+      // Fetch notifications from backend
+      const resp = await api.get('/notifications');
+      const data = resp.data;
+      setNotifications(data.notifications || []);
+      setUnreadCount(data.unreadCount || 0);
     } catch (error) {
       console.error('Failed to fetch notifications:', error);
     } finally {
@@ -62,17 +58,9 @@ export default function NotificationBell() {
   const markAsRead = async (notificationId: string, actionUrl?: string) => {
     try {
       const token = await getToken();
-      const response = await fetch(
-        `${process.env.NEXT_PUBLIC_API_URL || 'http://localhost:4000'}/api/notifications/${notificationId}/read`,
-        {
-          method: 'PUT',
-          headers: {
-            'Authorization': `Bearer ${token}`,
-          },
-        }
-      );
+      const response = await api.put(`/notifications/${notificationId}/read`);
 
-      if (response.ok) {
+      if (response.status >= 200 && response.status < 300) {
         setNotifications((prev) =>
           prev.map((notif) =>
             notif.id === notificationId ? { ...notif, isRead: true } : notif
@@ -94,17 +82,9 @@ export default function NotificationBell() {
   const markAllAsRead = async () => {
     try {
       const token = await getToken();
-      const response = await fetch(
-        `${process.env.NEXT_PUBLIC_API_URL || 'http://localhost:4000'}/api/notifications/read-all`,
-        {
-          method: 'PUT',
-          headers: {
-            'Authorization': `Bearer ${token}`,
-          },
-        }
-      );
+      const response = await api.put('/notifications/read-all');
 
-      if (response.ok) {
+      if (response.status >= 200 && response.status < 300) {
         setNotifications((prev) =>
           prev.map((notif) => ({ ...notif, isRead: true }))
         );
@@ -119,17 +99,9 @@ export default function NotificationBell() {
   const deleteNotification = async (notificationId: string) => {
     try {
       const token = await getToken();
-      const response = await fetch(
-        `${process.env.NEXT_PUBLIC_API_URL || 'http://localhost:4000'}/api/notifications/${notificationId}`,
-        {
-          method: 'DELETE',
-          headers: {
-            'Authorization': `Bearer ${token}`,
-          },
-        }
-      );
+      const response = await api.delete(`/notifications/${notificationId}`);
 
-      if (response.ok) {
+      if (response.status >= 200 && response.status < 300) {
         setNotifications((prev) => prev.filter((n) => n.id !== notificationId));
         if (!notifications.find((n) => n.id === notificationId)?.isRead) {
           setUnreadCount((prev) => Math.max(0, prev - 1));
@@ -144,24 +116,45 @@ export default function NotificationBell() {
   useEffect(() => {
     if (!user) return;
 
+    // Load initial notifications
     fetchNotifications();
 
-    // Socket.IO real-time notification
-    socket.on('new-notification', (notification: Notification) => {
-      setNotifications((prev) => [notification, ...prev]);
-      setUnreadCount((prev) => prev + 1);
-      
-      // Optional: Show browser notification
-      if ('Notification' in window && Notification.permission === 'granted') {
-        new Notification(notification.title, {
-          body: notification.body,
-          icon: '/icon.png',
-        });
+    // Ensure socket is connected with a valid Clerk token before listening.
+    // Calling `connect` is idempotent in the SocketService; it will reuse
+    // an existing connection if the token hasn't changed.
+    let attached = false;
+    const setupSocket = async () => {
+      try {
+        const token = await getToken();
+        if (!token) return;
+
+        // Connect (or reuse) socket with token
+        const s = socket.connect(token);
+
+        // Attach listener only once
+        if (s) {
+          s.on('new-notification', (notification: Notification) => {
+            setNotifications((prev) => [notification, ...prev]);
+            setUnreadCount((prev) => prev + 1);
+
+            if ('Notification' in window && Notification.permission === 'granted') {
+              new Notification(notification.title, {
+                body: notification.body,
+                icon: '/icon.png',
+              });
+            }
+          });
+          attached = true;
+        }
+      } catch (error) {
+        console.error('Socket setup failed for notifications:', error);
       }
-    });
+    };
+
+    setupSocket();
 
     return () => {
-      socket.off('new-notification');
+      if (attached) socket.off('new-notification');
     };
   }, [user]);
 
@@ -234,9 +227,8 @@ export default function NotificationBell() {
               notifications.map((notification) => (
                 <div
                   key={notification.id}
-                  className={`p-4 border-b border-gray-200 dark:border-gray-700 hover:bg-gray-50 dark:hover:bg-gray-700/50 transition-colors cursor-pointer ${
-                    !notification.isRead ? 'bg-blue-50 dark:bg-blue-900/20' : ''
-                  }`}
+                  className={`p-4 border-b border-gray-200 dark:border-gray-700 hover:bg-gray-50 dark:hover:bg-gray-700/50 transition-colors cursor-pointer ${!notification.isRead ? 'bg-blue-50 dark:bg-blue-900/20' : ''
+                    }`}
                   onClick={() => markAsRead(notification.id, notification.actionUrl)}
                 >
                   <div className="flex items-start justify-between gap-2">

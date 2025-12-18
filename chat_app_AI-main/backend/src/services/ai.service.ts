@@ -22,6 +22,7 @@ if (!GEMINI_API_KEY) {
 }
 
 const genAI = new GoogleGenerativeAI(GEMINI_API_KEY);
+logger.info(`🤖 AI Service initialized. Key present: ${!!GEMINI_API_KEY}`);
 
 export type ToneType = "professional" | "polite" | "formal" | "auto";
 
@@ -87,46 +88,64 @@ export class AIService {
       };
 
       // Create model with system instruction
-      const model = genAI.getGenerativeModel({
-        model: "gemini-flash-latest",
-        systemInstruction: SYSTEM_RULES,
-      });
+      const modelsToTry = ["gemini-flash-latest", "gemini-1.5-flash", "gemini-pro"];
+      let lastError = "";
 
-      const result = await model.generateContent(`${toneInstruction[tone]}
+      for (const modelName of modelsToTry) {
+        try {
+          const model = genAI.getGenerativeModel({
+            model: modelName,
+            systemInstruction: SYSTEM_RULES,
+          });
+
+          logger.info(`🤖 [PRO-VER: 1.5] Trying model: ${modelName} for tone: ${tone}`);
+
+          const result = await model.generateContent(`${toneInstruction[tone]}
 
 IMPORTANT: The original message has ${wordCount} words. Your rewritten message MUST be between ${minWords} and ${maxWords} words (90-100% of the original length). Keep it concise and maintain the same message length.
 
 Rewrite the following message:
 
-"""
-${text}
-"""`);
+${text}`);
 
-      const convertedText = result.response.text()?.trim();
+          const response = await result.response;
+          const convertedText = response.text().trim();
 
-      if (!convertedText) {
-        throw new Error("Empty response from AI");
+          if (convertedText) {
+            logger.info(`✅ AI tone conversion successful with model: ${modelName}`);
+            return {
+              success: true,
+              convertedText,
+              originalText: text,
+              tone,
+            };
+          }
+        } catch (err: any) {
+          lastError = err.message || "Unknown error";
+          if (lastError.includes("404") || lastError.includes("not found")) {
+            logger.warn(`⚠️ Model ${modelName} not found, trying next...`);
+            continue;
+          }
+          throw err; // Re-throw other errors (like auth/quota)
+        }
       }
-
-      const convertedWordCount = this.countWords(convertedText);
-      logger.info(`✅ Tone conversion successful (${tone}) - Original: ${wordCount} words → Converted: ${convertedWordCount} words`);
-
-      return {
-        success: true,
-        convertedText,
-        originalText: text,
-        tone,
-      };
-    } catch (error) {
-      const errorMessage = error instanceof Error ? error.message : "Unknown AI conversion error";
-      
-      logger.error("❌ Tone conversion failed:", errorMessage);
 
       return {
         success: false,
         originalText: text,
         tone,
-        error: errorMessage,
+        error: `All models failed. Last error: ${lastError}`,
+      };
+    } catch (error: any) {
+      logger.error("❌ Tone conversion failed:", {
+        error: error.message,
+        text: text.substring(0, 50),
+      });
+      return {
+        success: false,
+        originalText: text,
+        tone,
+        error: error.message,
       };
     }
   }

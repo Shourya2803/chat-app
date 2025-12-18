@@ -252,7 +252,10 @@ export class FcmNotificationService {
     try {
       await prisma.fcmToken.upsert({
         where: {
-          token: token,
+          unique_user_token: {
+            userId,
+            token,
+          },
         },
         update: {
           isActive: true,
@@ -284,7 +287,7 @@ export class FcmNotificationService {
    */
   async deactivateToken(token: string): Promise<void> {
     try {
-      await prisma.fcmToken.update({
+      await prisma.fcmToken.updateMany({
         where: { token },
         data: {
           isActive: false,

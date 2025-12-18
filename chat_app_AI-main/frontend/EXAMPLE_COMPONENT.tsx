@@ -29,7 +29,7 @@ export default function ExampleChatComponent() {
   const [isConnected, setIsConnected] = useState(false);
   const [applyTone, setApplyTone] = useState(false);
   const [toneType, setToneType] = useState<'professional' | 'polite' | 'formal' | 'auto'>('professional');
-  
+
   const conversationId = 'example-conversation-id'; // Replace with actual conversation ID
   const receiverId = 'example-receiver-id'; // Replace with actual receiver ID
 
@@ -45,7 +45,7 @@ export default function ExampleChatComponent() {
         // Get token from Clerk (this returns the __session cookie value)
         // @ts-ignore
         const token = await user.getToken();
-        
+
         if (!token) {
           console.error('No token available');
           return;
@@ -53,7 +53,7 @@ export default function ExampleChatComponent() {
 
         // Connect to backend Socket.IO server
         const socket = socketService.connect(token);
-        
+
         // Update connection status
         setIsConnected(socket.connected);
       } catch (error) {
@@ -148,7 +148,7 @@ export default function ExampleChatComponent() {
         receiverId,
         content: newMessage,
         applyTone,
-        toneType,
+        toneType: toneType as any,
       });
 
       // Optimistically add message to UI (optional)
@@ -213,11 +213,10 @@ export default function ExampleChatComponent() {
         {messages.map((message) => (
           <div
             key={message.id}
-            className={`p-3 rounded ${
-              message.sender_id === user?.id
+            className={`p-3 rounded ${message.sender_id === user?.id
                 ? 'bg-blue-500 text-white ml-auto'
                 : 'bg-gray-200 text-black'
-            } max-w-xs`}
+              } max-w-xs`}
           >
             <p>{message.content}</p>
             {message.tone_applied && (

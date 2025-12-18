@@ -1,7 +1,11 @@
 import axios from 'axios';
 import { useAuth } from '@clerk/nextjs';
+import React from 'react';
 
-const API_URL = process.env.NEXT_PUBLIC_APP_URL || 'http://localhost:3000';
+// Prefer a direct backend URL when provided (useful when the backend is
+// deployed separately). Fallback to the frontend `APP_URL` which proxies
+// to the backend via `/api` routes.
+const API_URL = process.env.NEXT_PUBLIC_API_URL || process.env.NEXT_PUBLIC_APP_URL || 'http://localhost:3000';
 
 export const api = axios.create({
   baseURL: `${API_URL}/api`,
@@ -12,21 +16,43 @@ export const api = axios.create({
 });
 
 // Request interceptor to add auth token
+// Request interceptor to add auth token
 export function useApiClient() {
   const { getToken } = useAuth();
+  const interceptorId = React.useRef<number | null>(null);
 
-  api.interceptors.request.use(
-    async (config) => {
-      const token = await getToken();
-      if (token) {
-        config.headers.Authorization = `Bearer ${token}`;
-      }
-      return config;
-    },
-    (error) => {
-      return Promise.reject(error);
+  React.useEffect(() => {
+    // Eject previous interceptor if exists
+    if (interceptorId.current !== null) {
+      api.interceptors.request.eject(interceptorId.current);
     }
-  );
+
+    // Add new interceptor
+    interceptorId.current = api.interceptors.request.use(
+      async (config) => {
+        try {
+          const token = await getToken();
+          if (token) {
+            config.headers.Authorization = `Bearer ${token}`;
+          }
+        } catch (error) {
+          console.error('Error getting auth token:', error);
+        }
+        return config;
+      },
+      (error) => {
+        return Promise.reject(error);
+      }
+    );
+
+    // Cleanup on unmount or when getToken changes
+    return () => {
+      if (interceptorId.current !== null) {
+        api.interceptors.request.eject(interceptorId.current);
+        interceptorId.current = null;
+      }
+    };
+  }, [getToken]);
 
   return api;
 }

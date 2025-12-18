@@ -23,6 +23,9 @@ import { notificationService } from './src/services/notification.service';
 // Import routes
 import cronRoutes from './src/routes/cron.routes';
 import notificationRoutes from './src/routes/notification.routes';
+import usersRoutes from './src/routes/users.routes';
+import authRoutes from './src/routes/auth.routes';
+import messagesRoutes from './src/routes/messages.routes';
 
 dotenv.config();
 
@@ -48,7 +51,7 @@ app.use(cors({
   origin: (origin, callback) => {
     // Allow requests with no origin (mobile apps, Postman, etc.)
     if (!origin) return callback(null, true);
-    
+
     // Check if origin matches allowed patterns
     const isAllowed = ALLOWED_ORIGINS.some(allowedOrigin => {
       if (allowedOrigin.includes('*')) {
@@ -57,7 +60,7 @@ app.use(cors({
       }
       return allowedOrigin === origin;
     });
-    
+
     if (isAllowed) {
       callback(null, true);
     } else {
@@ -71,8 +74,8 @@ app.use(express.json());
 
 // Health check endpoint (for Render health checks)
 app.get('/health', (req, res) => {
-  res.json({ 
-    status: 'ok', 
+  res.json({
+    status: 'ok',
     timestamp: new Date().toISOString(),
     uptime: process.uptime(),
   });
@@ -91,6 +94,9 @@ app.get('/', (req, res) => {
 // Mount routes
 app.use('/api/cron', cronRoutes);
 app.use('/api/notifications', notificationRoutes);
+app.use('/api/users', usersRoutes);
+app.use('/api/auth', authRoutes);
+app.use('/api/messages/conversation', messagesRoutes);
 
 // ========================================
 // SOCKET.IO SERVER SETUP
@@ -124,7 +130,7 @@ const io = new SocketIOServer(httpServer, {
 io.use(async (socket, next) => {
   try {
     const token = socket.handshake.auth.token;
-    
+
     if (!token) {
       logger.warn('Socket connection rejected: No token provided');
       return next(new Error('Authentication error: No token provided'));
@@ -132,7 +138,7 @@ io.use(async (socket, next) => {
 
     // Verify Clerk token
     const session = await clerkClient.verifyToken(token);
-    
+
     if (!session || !session.sub) {
       logger.warn('Socket connection rejected: Invalid token');
       return next(new Error('Authentication error: Invalid token'));
@@ -140,7 +146,7 @@ io.use(async (socket, next) => {
 
     // Store Clerk ID in socket data
     socket.data.clerkId = session.sub;
-    
+
     // Fetch the database user by Clerk ID
     const user = await prisma.user.findUnique({
       where: { clerkId: session.sub },
@@ -155,7 +161,7 @@ io.use(async (socket, next) => {
     // Store database user ID in socket data
     socket.data.userId = user.id;
     socket.data.dbUserId = user.id;
-    
+
     logger.info(`Socket authenticated: ${user.username} (${user.clerkId})`);
     next();
   } catch (error) {
@@ -171,7 +177,7 @@ io.use(async (socket, next) => {
 io.on('connection', (socket) => {
   const userId = socket.data.userId;
   const clerkId = socket.data.clerkId;
-  
+
   logger.info(`✅ User connected: ${clerkId} (DB ID: ${userId})`);
 
   // Join user's personal room for direct notifications
@@ -216,12 +222,12 @@ io.on('connection', (socket) => {
       // Get sender user
       const sender = await prisma.user.findUnique({
         where: { id: userId },
-        select: { 
-          id: true, 
-          username: true, 
-          firstName: true, 
-          lastName: true, 
-          avatarUrl: true 
+        select: {
+          id: true,
+          username: true,
+          firstName: true,
+          lastName: true,
+          avatarUrl: true
         },
       });
 
@@ -238,18 +244,18 @@ io.on('connection', (socket) => {
 
       if (data.applyTone && data.toneType && data.content && data.content.trim()) {
         logger.info(`🤖 Applying tone conversion: ${data.toneType}`);
-        
+
         try {
           // Add timeout for Gemini API (10 seconds)
-          const timeoutPromise = new Promise((_, reject) => 
+          const timeoutPromise = new Promise((_, reject) =>
             setTimeout(() => reject(new Error('Gemini API timeout after 10s')), 10000)
           );
-          
+
           const result = await Promise.race([
             aiService.convertTone(data.content, data.toneType),
             timeoutPromise
           ]) as any;
-          
+
           if (result.success && result.convertedText) {
             finalContent = result.convertedText;
             appliedTone = data.toneType;
@@ -261,6 +267,12 @@ io.on('connection', (socket) => {
           logger.error(`❌ Tone conversion error: ${error.message}`);
           logger.warn('⚠️ Using original message due to error');
         }
+      }
+
+      if (!data.receiverId) {
+        logger.error('❌ Missing receiverId in message data');
+        socket.emit('error', { message: 'Missing receiverId' });
+        return;
       }
 
       // Create message in database
@@ -307,7 +319,7 @@ io.on('connection', (socket) => {
 
       // Emit to receiver via conversation room
       socket.to(`conversation:${data.conversationId}`).emit('new-message', formattedMessage);
-      
+
       logger.info(`📤 Message broadcast to conversation:${data.conversationId}`);
 
       // Create notification (in-app + FCM + email)
@@ -357,7 +369,7 @@ io.on('connection', (socket) => {
   socket.on('message:read', async (data: { messageId: string; conversationId: string }) => {
     try {
       const messageRead = await readReceiptsService.markMessageAsRead(data.messageId, userId);
-      
+
       // Broadcast read receipt to conversation
       io.to(`conversation:${data.conversationId}`).emit('message:read:update', {
         messageId: data.messageId,
@@ -464,7 +476,7 @@ io.on('connection', (socket) => {
       });
     } catch (error: any) {
       logger.error('Message edit error:', error);
-      socket.emit('message-error', { 
+      socket.emit('message-error', {
         error: error.message || 'Failed to edit message',
         code: 'EDIT_FAILED',
       });
@@ -498,7 +510,7 @@ io.on('connection', (socket) => {
       });
     } catch (error: any) {
       logger.error('Message delete error:', error);
-      socket.emit('message-error', { 
+      socket.emit('message-error', {
         error: error.message || 'Failed to delete message',
         code: 'DELETE_FAILED',
       });
@@ -524,7 +536,7 @@ io.on('connection', (socket) => {
 
       // Broadcast reaction update
       const eventName = result.action === 'added' ? 'message:reaction:added' : 'message:reaction:removed';
-      
+
       io.to(`conversation:${data.conversationId}`).emit(eventName, {
         messageId: data.messageId,
         conversationId: data.conversationId,
@@ -541,7 +553,7 @@ io.on('connection', (socket) => {
       });
     } catch (error: any) {
       logger.error('Message reaction error:', error);
-      socket.emit('message-error', { 
+      socket.emit('message-error', {
         error: error.message || 'Failed to react to message',
         code: 'REACTION_FAILED',
       });
@@ -553,7 +565,7 @@ io.on('connection', (socket) => {
   // ========================================
   socket.on('heartbeat', async () => {
     await presenceService.setOnline(userId);
-    
+
     // Broadcast online status to all connected clients
     io.emit('user-status', {
       userId,
@@ -567,9 +579,9 @@ io.on('connection', (socket) => {
   // ========================================
   socket.on('disconnect', async () => {
     logger.info(`❌ User disconnected: ${clerkId} (DB ID: ${userId})`);
-    
+
     await presenceService.setOffline(userId);
-    
+
     // Broadcast offline status
     io.emit('user-status', {
       userId,

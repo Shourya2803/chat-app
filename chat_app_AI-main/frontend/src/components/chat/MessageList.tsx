@@ -23,13 +23,21 @@ export default function MessageList({ messages, loading, currentUserId }: Messag
   };
 
   const formatMessageTime = (date: string) => {
+    if (!date) return '';
     const messageDate = new Date(date);
-    if (isToday(messageDate)) {
-      return format(messageDate, 'HH:mm');
-    } else if (isYesterday(messageDate)) {
-      return `Yesterday ${format(messageDate, 'HH:mm')}`;
-    } else {
-      return format(messageDate, 'MMM dd, HH:mm');
+    if (isNaN(messageDate.getTime())) return '';
+
+    try {
+      if (isToday(messageDate)) {
+        return format(messageDate, 'HH:mm');
+      } else if (isYesterday(messageDate)) {
+        return `Yesterday ${format(messageDate, 'HH:mm')}`;
+      } else {
+        return format(messageDate, 'MMM dd, HH:mm');
+      }
+    } catch (e) {
+      console.error('Error formatting date:', e);
+      return '';
     }
   };
 
@@ -68,11 +76,10 @@ export default function MessageList({ messages, loading, currentUserId }: Messag
                 <div className={`flex flex-col max-w-[70%] ${isSent ? 'items-end' : 'items-start'}`}>
                   {/* Message Bubble */}
                   <div
-                    className={`rounded-2xl px-4 py-2 break-words shadow-sm ${
-                      isSent
+                    className={`rounded-2xl px-4 py-2 break-words shadow-sm ${isSent
                         ? 'bg-primary-600 text-white'
                         : 'bg-white dark:bg-gray-800 text-gray-900 dark:text-gray-100 border border-gray-200 dark:border-gray-700'
-                    }`}
+                      }`}
                   >
                     {message.message_type === 'image' && message.media_url ? (
                       <div className="space-y-2">
