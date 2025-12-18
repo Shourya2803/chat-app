@@ -35,18 +35,19 @@ class SocketService {
    * @param token - Clerk session token from __session cookie or getToken()
    */
   connect(token: string): Socket {
-    // If already connected with same token, return existing socket
-    if (this.socket?.connected && this.token === token) {
-      return this.socket;
-    }
+    this.token = token;
 
-    // If socket exists but not connected, try to reconnect
-    if (this.socket && !this.socket.connected) {
+    // If already connected, update the auth token for next reconnection
+    if (this.socket) {
+      this.socket.auth = { token };
+
+      if (this.socket.connected) {
+        return this.socket;
+      }
+
       this.socket.connect();
       return this.socket;
     }
-
-    this.token = token;
 
     try {
       console.log('🔌 Connecting to Socket.IO server:', SOCKET_URL);
@@ -54,20 +55,20 @@ class SocketService {
       this.socket = io(SOCKET_URL, {
         // Send Clerk token for authentication
         auth: { token },
-        
+
         // Use WebSocket transport for better performance
         // Fall back to polling if WebSocket fails
         transports: ['websocket', 'polling'],
-        
+
         // Reconnection settings
         reconnection: true,
         reconnectionDelay: 2000,
         reconnectionDelayMax: 10000,
         reconnectionAttempts: this.maxReconnectAttempts,
-        
+
         // Connection timeout
         timeout: 20000,
-        
+
         // Enable credentials for CORS
         withCredentials: true,
       });
@@ -80,7 +81,7 @@ class SocketService {
 
       this.socket.on('disconnect', (reason) => {
         console.log('❌ Socket disconnected:', reason);
-        
+
         if (reason === 'io server disconnect') {
           console.log('🔄 Server disconnected, attempting reconnect...');
           this.socket?.connect();
@@ -92,7 +93,7 @@ class SocketService {
       this.socket.on('connect_error', (error) => {
         this.reconnectAttempts++;
         console.error(`Socket connection error (attempt ${this.reconnectAttempts}):`, error.message);
-        
+
         if (this.reconnectAttempts >= this.maxReconnectAttempts) {
           console.error('❌ Max reconnection attempts reached. Real-time features unavailable.');
           this.socket?.close();
@@ -134,7 +135,7 @@ class SocketService {
       console.warn('Cannot join conversation - socket not connected');
       return;
     }
-    
+
     console.log('📍 Joining conversation:', conversationId);
     this.socket.emit('join-conversation', conversationId);
   }
@@ -142,7 +143,7 @@ class SocketService {
   // Leave a conversation
   leaveConversation(conversationId: string): void {
     if (!this.socket?.connected) return;
-    
+
     console.log('📍 Leaving conversation:', conversationId);
     this.socket.emit('leave-conversation', conversationId);
   }
@@ -199,7 +200,7 @@ class SocketService {
 
   off(event: string, callback?: (...args: any[]) => void): void {
     if (!this.socket) return;
-    
+
     if (callback) {
       this.socket.off(event, callback);
     } else {

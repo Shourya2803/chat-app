@@ -118,19 +118,19 @@ export default function ChatLayout() {
             socket.emit('heartbeat');
           }, 240000);
 
-          // Refresh token and reconnect every 10 minutes to prevent expiration
+          // Refresh token and proactively update socket auth every 50 seconds
+          // This keeps the token valid even if the connection drops and needs to reconnect
           const tokenRefreshInterval = setInterval(async () => {
             try {
               const newToken = await getToken();
               if (newToken) {
-                console.log('🔄 Refreshing Socket.IO connection with new token...');
-                socketService.disconnect();
+                // Update the token in socketService (this updates socket.auth internally)
                 socketService.connect(newToken);
               }
             } catch (error) {
               console.error('Token refresh failed:', error);
             }
-          }, 600000); // 10 minutes
+          }, 50000); // 50 seconds (Clerk tokens often expire in 60s)
 
           return () => {
             clearInterval(heartbeatInterval);

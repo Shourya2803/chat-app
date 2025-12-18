@@ -73,13 +73,13 @@ export default function MessageInput({ conversationId, receiverId }: MessageInpu
         try {
           const formData = new FormData();
           formData.append('image', imageFile);
-          
+
           const response = await api.post('/upload/image', formData, {
             headers: {
               'Content-Type': 'multipart/form-data',
             },
           });
-          
+
           mediaUrl = response.data.data.url;
           toast.success('Image uploaded');
         } catch (error) {
@@ -91,20 +91,33 @@ export default function MessageInput({ conversationId, receiverId }: MessageInpu
         }
       }
 
-      // Try Socket.IO first, fallback to REST API
-      const isVercel = process.env.NEXT_PUBLIC_VERCEL_ENV;
-      
-      if (isVercel) {
-        // Use REST API on Vercel (no WebSocket support)
+      // Use Socket.IO if connected, otherwise fallback to REST API
+      const useSocket = socketService.isConnected() && !process.env.NEXT_PUBLIC_VERCEL_ENV;
+
+      if (useSocket) {
+        // Use Socket.IO
+        const messagePayload = {
+          receiverId,
+          content: message.trim() || 'Image',
+          conversationId,
+          applyTone: toneEnabled && !!selectedTone,
+          toneType: selectedTone || undefined,
+          mediaUrl,
+        };
+
+        console.log('Sending via Socket.IO:', messagePayload);
+        socketService.sendMessage(messagePayload);
+      } else {
+        // Use REST API (Fallback for Vercel or disconnected Sockets)
         const apiPayload = {
           content: message.trim() || 'Image',
           receiverId,
           tone: toneEnabled && selectedTone ? selectedTone : undefined,
-          imageUrl: mediaUrl,
+          mediaUrl: mediaUrl,
         };
-        
-        console.log('Sending via REST API:', apiPayload);
-        
+
+        console.log('Sending via REST API (Fallback):', apiPayload);
+
         try {
           const response = await api.post(`/messages/conversation/${conversationId}`, apiPayload);
 
@@ -117,26 +130,12 @@ export default function MessageInput({ conversationId, receiverId }: MessageInpu
           console.error('Failed to send message via API:', error);
           throw error;
         }
-      } else {
-        // Use Socket.IO when available
-        const messagePayload = {
-          receiverId,
-          content: message.trim() || 'Image',
-          conversationId,
-          applyTone: toneEnabled && !!selectedTone,
-          toneType: selectedTone || undefined,
-          mediaUrl,
-        };
-        
-        console.log('Sending via Socket.IO:', messagePayload);
-        
-        socketService.sendMessage(messagePayload);
       }
 
       // Clear input
       setMessage('');
       removeImage();
-      
+
       // Reset textarea height
       if (textareaRef.current) {
         textareaRef.current.style.height = 'auto';
@@ -158,7 +157,7 @@ export default function MessageInput({ conversationId, receiverId }: MessageInpu
 
   const handleTyping = () => {
     socketService.startTyping(conversationId);
-    
+
     // Stop typing after 3 seconds of inactivity
     const timeout = setTimeout(() => {
       socketService.stopTyping(conversationId);

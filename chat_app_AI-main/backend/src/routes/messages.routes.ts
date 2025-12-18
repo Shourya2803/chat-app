@@ -2,6 +2,8 @@ import { Router, Request, Response } from 'express';
 import { prisma } from '../lib/prisma';
 import { clerkClient } from '@clerk/clerk-sdk-node';
 import { logger } from '../utils/logger';
+import { aiService, ToneType } from '../services/ai.service';
+import { notificationService } from '../services/notification.service';
 
 const router = Router();
 
@@ -74,7 +76,7 @@ router.post('/:id', async (req: Request, res: Response) => {
     if (!clerkId) return res.status(401).json({ error: 'Unauthorized' });
 
     const { id } = req.params;
-    const { content, mediaUrl } = req.body;
+    const { content, mediaUrl, tone } = req.body;
 
     const me = await prisma.user.findUnique({ where: { clerkId } });
     if (!me) return res.status(404).json({ error: 'User not found' });
@@ -84,18 +86,72 @@ router.post('/:id', async (req: Request, res: Response) => {
 
     const receiverId = conversation.user1Id === me.id ? conversation.user2Id : conversation.user1Id;
 
+    // Apply tone conversion if requested
+    let finalContent = content || '';
+    let originalContentSnippet = content || '';
+    let appliedTone = null;
+
+    if (tone && content && content.trim()) {
+      logger.info(`🤖 REST: Applying tone conversion: ${tone} for session: ${clerkId}`);
+      try {
+        // 30s timeout for Gemini in production
+        const timeoutPromise = new Promise((_, reject) =>
+          setTimeout(() => reject(new Error('Gemini API timeout after 30s')), 30000)
+        );
+
+        const result = await Promise.race([
+          aiService.convertTone(content, tone as ToneType),
+          timeoutPromise
+        ]) as any;
+
+        if (result.success && result.convertedText) {
+          finalContent = result.convertedText;
+          appliedTone = tone as ToneType;
+          logger.info('✅ REST: Tone conversion successful');
+        } else {
+          logger.warn(`⚠️ REST: Tone conversion failed: ${result.error || 'Empty response'}`);
+        }
+      } catch (error: any) {
+        logger.error(`❌ REST: Tone conversion error: ${error.message}`);
+      }
+    }
+
     const message = await prisma.message.create({
       data: {
         conversationId: id,
         senderId: me.id,
         receiverId,
-        content: content || '',
+        content: finalContent,
+        originalContent: originalContentSnippet,
+        toneApplied: appliedTone,
         mediaUrl: mediaUrl || null,
       },
     });
 
     // Update conversation timestamp
     await prisma.conversation.update({ where: { id }, data: { lastMessageAt: new Date() } });
+
+    // Send notifications (non-blocking)
+    try {
+      const senderName = me.username || me.firstName || 'Someone';
+      await notificationService.createNotification({
+        userId: receiverId,
+        type: 'message',
+        title: `New message from ${senderName}`,
+        body: finalContent.substring(0, 100),
+        actionUrl: `/chat?conversation=${id}`,
+        metadata: {
+          messageId: message.id,
+          conversationId: id,
+          senderId: me.id,
+          senderName,
+        },
+        sendPush: true,
+        sendEmail: false,
+      }).catch(err => logger.error('REST Notification error (captured):', err));
+    } catch (notifError) {
+      logger.error('REST Notification failed (non-blocking):', notifError);
+    }
 
     res.json({ success: true, data: { message } });
   } catch (error) {
