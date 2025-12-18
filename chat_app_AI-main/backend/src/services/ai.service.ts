@@ -22,7 +22,7 @@ if (!GEMINI_API_KEY) {
 }
 
 const genAI = new GoogleGenerativeAI(GEMINI_API_KEY);
-logger.info(`🤖 AI Service initialized. Key present: ${!!GEMINI_API_KEY}`);
+logger.info(`🤖 [PRO-VER: 1.6] AI Service initialized. Key present: ${!!GEMINI_API_KEY} (Prefix: ${GEMINI_API_KEY.substring(0, 4)}...)`);
 
 export type ToneType = "professional" | "polite" | "formal" | "auto";
 
@@ -98,7 +98,7 @@ export class AIService {
             systemInstruction: SYSTEM_RULES,
           });
 
-          logger.info(`🤖 [PRO-VER: 1.5] Trying model: ${modelName} for tone: ${tone}`);
+          logger.info(`🤖 [PRO-VER: 1.6] Trying model: ${modelName} for tone: ${tone}`);
 
           const result = await model.generateContent(`${toneInstruction[tone]}
 

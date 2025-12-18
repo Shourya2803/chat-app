@@ -246,9 +246,9 @@ io.on('connection', (socket) => {
         logger.info(`🤖 Applying tone conversion: ${data.toneType}`);
 
         try {
-          // Add timeout for Gemini API (10 seconds)
+          // Add timeout for Gemini API (30 seconds)
           const timeoutPromise = new Promise((_, reject) =>
-            setTimeout(() => reject(new Error('Gemini API timeout after 10s')), 10000)
+            setTimeout(() => reject(new Error('Gemini API timeout after 30s')), 30000)
           );
 
           const result = await Promise.race([
@@ -261,7 +261,7 @@ io.on('connection', (socket) => {
             appliedTone = data.toneType;
             logger.info('✅ Tone conversion successful');
           } else {
-            logger.warn('⚠️ Tone conversion failed, using original message');
+            logger.warn(`⚠️ Tone conversion failed: ${result.error || 'Empty response'}, using original message`);
           }
         } catch (error: any) {
           logger.error(`❌ Tone conversion error: ${error.message}`);
