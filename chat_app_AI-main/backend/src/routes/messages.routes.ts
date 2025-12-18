@@ -15,6 +15,26 @@ async function authenticate(req: Request) {
   return session?.sub || null;
 }
 
+// Helper to format message for frontend (snake_case)
+function formatMessage(message: any) {
+  return {
+    id: message.id,
+    conversation_id: message.conversationId,
+    sender_id: message.senderId,
+    receiver_id: message.receiverId,
+    content: message.content,
+    original_content: message.originalContent,
+    tone_applied: message.toneApplied,
+    message_type: message.mediaUrl ? 'image' : 'text',
+    media_url: message.mediaUrl,
+    status: message.status || 'sent',
+    is_read: message.isRead,
+    read_at: message.readAt,
+    created_at: message.createdAt,
+    updated_at: message.updatedAt,
+  };
+}
+
 // POST /api/messages/conversation
 // body: { userId } (other user's DB id)
 router.post('/', async (req: Request, res: Response) => {
@@ -52,7 +72,7 @@ router.post('/', async (req: Request, res: Response) => {
 router.get('/:id', async (req: Request, res: Response) => {
   try {
     const { id } = req.params;
-    const limit = parseInt(req.query.limit as string) || 50;
+    const limit = parseInt(req.query.limit as string) || 100; // Increased default
     const offset = parseInt(req.query.offset as string) || 0;
 
     const messages = await prisma.message.findMany({
@@ -62,7 +82,12 @@ router.get('/:id', async (req: Request, res: Response) => {
       take: limit,
     });
 
-    res.json({ success: true, data: { messages } });
+    res.json({
+      success: true,
+      data: {
+        messages: messages.map(formatMessage)
+      }
+    });
   } catch (error) {
     logger.error('Get messages error:', error);
     res.status(500).json({ error: 'Internal server error' });
@@ -94,7 +119,6 @@ router.post('/:id', async (req: Request, res: Response) => {
     if (tone && content && content.trim()) {
       logger.info(`🤖 REST: Applying tone conversion: ${tone} for session: ${clerkId}`);
       try {
-        // 30s timeout for Gemini in production
         const timeoutPromise = new Promise((_, reject) =>
           setTimeout(() => reject(new Error('Gemini API timeout after 30s')), 30000)
         );
@@ -153,7 +177,7 @@ router.post('/:id', async (req: Request, res: Response) => {
       logger.error('REST Notification failed (non-blocking):', notifError);
     }
 
-    res.json({ success: true, data: { message } });
+    res.json({ success: true, data: { message: formatMessage(message) } });
   } catch (error) {
     logger.error('Create message error:', error);
     res.status(500).json({ error: 'Internal server error' });

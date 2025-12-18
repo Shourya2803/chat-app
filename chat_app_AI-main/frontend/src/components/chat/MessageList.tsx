@@ -77,8 +77,8 @@ export default function MessageList({ messages, loading, currentUserId }: Messag
                   {/* Message Bubble */}
                   <div
                     className={`rounded-2xl px-4 py-2 break-words shadow-sm ${isSent
-                        ? 'bg-primary-600 text-white'
-                        : 'bg-white dark:bg-gray-800 text-gray-900 dark:text-gray-100 border border-gray-200 dark:border-gray-700'
+                      ? 'bg-primary-600 text-white'
+                      : 'bg-white dark:bg-gray-800 text-gray-900 dark:text-gray-100 border border-gray-200 dark:border-gray-700'
                       }`}
                   >
                     {message.message_type === 'image' && message.media_url ? (
@@ -97,10 +97,10 @@ export default function MessageList({ messages, loading, currentUserId }: Messag
                       <p className="text-sm whitespace-pre-wrap">{message.content}</p>
                     )}
 
-                    {/* Tone indicator (only visible to sender) */}
-                    {isSent && message.tone_applied && (
+                    {/* Tone indicator (visible to everyone) */}
+                    {message.tone_applied && (
                       <div className="mt-1 flex items-center gap-1">
-                        <span className="text-xs text-primary-200">
+                        <span className={`text-xs ${isSent ? 'text-primary-200' : 'text-primary-600 dark:text-primary-400'}`}>
                           AI: {message.tone_applied}
                         </span>
                       </div>
@@ -123,13 +123,13 @@ export default function MessageList({ messages, loading, currentUserId }: Messag
                     )}
                   </div>
 
-                  {/* Original message preview (only visible to sender) */}
-                  {isSent && message.original_content && message.original_content !== message.content && (
-                    <details className="mt-1 cursor-pointer">
-                      <summary className="text-xs text-primary-300">
+                  {/* Original message preview (visible to everyone) */}
+                  {message.original_content && message.original_content !== message.content && (
+                    <details className={`mt-1 cursor-pointer ${isSent ? 'text-right' : 'text-left'}`}>
+                      <summary className={`text-xs ${isSent ? 'text-primary-300' : 'text-primary-600 dark:text-primary-400'}`}>
                         View original
                       </summary>
-                      <p className="text-xs mt-1 italic text-primary-200">
+                      <p className={`text-xs mt-1 italic ${isSent ? 'text-primary-200' : 'text-gray-500 dark:text-gray-400'}`}>
                         "{message.original_content}"
                       </p>
                     </details>
