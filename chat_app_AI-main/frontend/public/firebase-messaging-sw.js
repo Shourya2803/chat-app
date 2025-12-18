@@ -1,32 +1,46 @@
 importScripts('https://www.gstatic.com/firebasejs/9.0.0/firebase-app-compat.js');
 importScripts('https://www.gstatic.com/firebasejs/9.0.0/firebase-messaging-compat.js');
 
-// Initialize the Firebase app in the service worker by passing in the
-// messagingSenderId.
-// Note: You must update these values with your own!
-// Since we cannot read .env here easily without build steps, we rely on the main app
-// to have already initialized or we accept that background handling needs these.
-// For now, this prevents the 404 error and allows the foreground token flow to work.
+// This service worker waits for the main thread to provide configuration
+let initialized = false;
 
-firebase.initializeApp({
-    apiKey: "REPLACE_WITH_YOUR_KEY",
-    authDomain: "REPLACE_WITH_YOUR_PROJECT.firebaseapp.com",
-    projectId: "REPLACE_WITH_YOUR_PROJECT_ID",
-    storageBucket: "REPLACE_WITH_YOUR_PROJECT.appspot.com",
-    messagingSenderId: "REPLACE_WITH_YOUR_SENDER_ID",
-    appId: "REPLACE_WITH_YOUR_APP_ID",
+self.addEventListener('message', (event) => {
+    if (event.data && event.data.type === 'SET_CONFIG') {
+        const config = event.data.config;
+        if (!initialized && config.apiKey && config.apiKey !== 'REPLACE_WITH_YOUR_KEY') {
+            firebase.initializeApp(config);
+            const messaging = firebase.messaging();
+
+            messaging.onBackgroundMessage((payload) => {
+                console.log('[sw] Background message:', payload);
+                const notificationTitle = payload.notification.title;
+                const notificationOptions = {
+                    body: payload.notification.body,
+                    icon: payload.notification.icon || '/icon.png'
+                };
+                self.registration.showNotification(notificationTitle, notificationOptions);
+            });
+
+            initialized = true;
+            console.log('[sw] Firebase initialized dynamically');
+        }
+    }
 });
 
-const messaging = firebase.messaging();
-
-messaging.onBackgroundMessage((payload) => {
-    console.log('[firebase-messaging-sw.js] Received background message ', payload);
-    // Customize notification here
-    const notificationTitle = payload.notification.title;
-    const notificationOptions = {
-        body: payload.notification.body,
-        icon: payload.notification.icon || '/icon.png'
-    };
-
-    self.registration.showNotification(notificationTitle, notificationOptions);
-});
+// Fallback initialization (if values were manually replaced)
+try {
+    firebase.initializeApp({
+        apiKey: "REPLACE_WITH_YOUR_KEY",
+        authDomain: "REPLACE_WITH_YOUR_PROJECT.firebaseapp.com",
+        projectId: "REPLACE_WITH_YOUR_PROJECT_ID",
+        storageBucket: "REPLACE_WITH_YOUR_PROJECT.appspot.com",
+        messagingSenderId: "REPLACE_WITH_YOUR_SENDER_ID",
+        appId: "REPLACE_WITH_YOUR_APP_ID",
+    });
+    const messaging = firebase.messaging();
+    messaging.onBackgroundMessage((payload) => {
+        // ... fallback handler
+    });
+} catch (e) {
+    // Expected if placeholders not replaced
+}

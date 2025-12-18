@@ -6,7 +6,7 @@ import { useApiClient } from '@/lib/api';
 import socketService from '@/lib/socket';
 import { useChatStore } from '@/store/chatStore';
 import { requestForToken, onMessageListener } from '@/lib/firebaseClient';
-import Sidebar from './Sidebar';
+import { UserButton } from '@clerk/nextjs';
 import ChatWindow from './ChatWindow';
 import NotificationBell from '../NotificationBell';
 
@@ -23,7 +23,7 @@ export default function ChatLayout() {
     setUserOnline,
     setUserOffline,
     addMessage,
-    incrementUnread,
+    setActiveConversation,
     activeConversationId
   } = useChatStore();
 
@@ -80,17 +80,15 @@ export default function ChatLayout() {
 
           // Listen for new messages
           socket.on('new-message', (message) => {
-            addMessage(message);
-
-            // Increment unread if not in active conversation
-            if (message.conversation_id !== activeConversationId) {
-              incrementUnread(message.conversation_id);
-              toast.success('New message received');
+            // Check if we should play sound (if not from us)
+            if (message.sender_id !== user?.id) {
+              try {
+                // Short, subtle notification sound
+                const audio = new Audio("data:audio/wav;base64,UklGRl9vT19XQVZFZm10IBAAAAABAAEAQB8AAEAfAAABAAgAZGF0YTtvT19vT19vT19vT19vT19vT19vT19vT19vT19vT19vT19vT19vT19vT19vT19vT19vT19vT19vT19vT19vT19vT18=");
+                audio.volume = 0.4;
+                audio.play().catch(() => { });
+              } catch (e) { }
             }
-          });
-
-          // Listen for message sent confirmation
-          socket.on('message-sent', (message) => {
             addMessage(message);
           });
 
@@ -140,6 +138,10 @@ export default function ChatLayout() {
         }
       } catch (error: any) {
         console.error('Failed to initialize app:', error);
+
+        // Auto-join global group as fallback if sync fails but we have session
+        setActiveConversation('global-group');
+
         const status = error?.response?.status;
         const errorMsg = error?.response?.data?.error || error?.message || 'Failed to connect to chat server';
 
@@ -153,16 +155,11 @@ export default function ChatLayout() {
     };
 
     initializeApp();
-  }, [user, getToken, api]);
+  }, [user, getToken, api, setActiveConversation]);
 
   return (
-    <div className="flex h-screen overflow-hidden bg-white dark:bg-gray-900">
-      <Sidebar />
-      <div className="flex-1 flex flex-col">
-        {/* Top Bar with Notification Bell */}
-        <div className="flex items-center justify-end p-4 border-b border-gray-200 dark:border-gray-700">
-          <NotificationBell />
-        </div>
+    <div className="flex h-screen overflow-hidden bg-gray-50 dark:bg-gray-950">
+      <div className="flex-1 flex flex-col max-w-4xl mx-auto bg-white dark:bg-gray-900 shadow-2xl">
         <ChatWindow />
       </div>
     </div>

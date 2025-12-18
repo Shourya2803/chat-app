@@ -5,20 +5,15 @@ import { useUIStore } from '@/store/uiStore';
 import socketService from '@/lib/socket';
 import { useApiClient } from '@/lib/api';
 import { Send, Image as ImageIcon, X } from 'lucide-react';
+import { useChatStore } from '@/store/chatStore';
 
 const toast = {
   error: (msg: string) => console.error('Error:', msg),
   success: (msg: string) => console.log('Success:', msg),
 };
 
-interface MessageInputProps {
-  conversationId: string;
-  receiverId: string;
-}
-
-export default function MessageInput({ conversationId, receiverId }: MessageInputProps) {
+export default function MessageInput() {
   const api = useApiClient();
-  const { toneEnabled, selectedTone } = useUIStore();
   const [message, setMessage] = useState('');
   const [imageFile, setImageFile] = useState<File | null>(null);
   const [imagePreview, setImagePreview] = useState<string | null>(null);
@@ -92,38 +87,30 @@ export default function MessageInput({ conversationId, receiverId }: MessageInpu
       }
 
       // Use Socket.IO if connected, otherwise fallback to REST API
-      const useSocket = socketService.isConnected() && !process.env.NEXT_PUBLIC_VERCEL_ENV;
+      const useSocket = socketService.isConnected();
 
       if (useSocket) {
         // Use Socket.IO
         const messagePayload = {
-          receiverId,
           content: message.trim() || 'Image',
-          conversationId,
-          applyTone: toneEnabled && !!selectedTone,
-          toneType: selectedTone || undefined,
           mediaUrl,
         };
 
         console.log('Sending via Socket.IO:', messagePayload);
         socketService.sendMessage(messagePayload);
       } else {
-        // Use REST API (Fallback for Vercel or disconnected Sockets)
+        // Use REST API (Fallback)
         const apiPayload = {
           content: message.trim() || 'Image',
-          receiverId,
-          tone: toneEnabled && selectedTone ? selectedTone : undefined,
           mediaUrl: mediaUrl,
         };
 
         console.log('Sending via REST API (Fallback):', apiPayload);
 
         try {
-          const response = await api.post(`/messages/conversation/${conversationId}`, apiPayload);
+          const response = await api.post(`/messages/conversation/global-group`, apiPayload);
 
           if (response.data.success) {
-            // Add message to local store immediately
-            const { useChatStore } = await import('@/store/chatStore');
             useChatStore.getState().addMessage(response.data.data);
           }
         } catch (error) {
@@ -156,11 +143,11 @@ export default function MessageInput({ conversationId, receiverId }: MessageInpu
   };
 
   const handleTyping = () => {
-    socketService.startTyping(conversationId);
+    socketService.startTyping('global-group');
 
     // Stop typing after 3 seconds of inactivity
     const timeout = setTimeout(() => {
-      socketService.stopTyping(conversationId);
+      socketService.stopTyping('global-group');
     }, 3000);
 
     return () => clearTimeout(timeout);
@@ -194,12 +181,7 @@ export default function MessageInput({ conversationId, receiverId }: MessageInpu
         </div>
       )}
 
-      {/* Tone indicator */}
-      {toneEnabled && selectedTone && (
-        <div className="mb-2 text-sm text-primary-600 dark:text-primary-400 flex items-center gap-2">
-          <span className="font-medium">AI Tone: {selectedTone}</span>
-        </div>
-      )}
+      {/* Always-on AI enabled status info could go here or header */}
 
       <div className="flex items-end gap-2">
         {/* Image upload button */}

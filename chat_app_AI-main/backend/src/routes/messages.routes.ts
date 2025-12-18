@@ -4,6 +4,7 @@ import { clerkClient } from '@clerk/clerk-sdk-node';
 import { logger } from '../utils/logger';
 import { aiService, ToneType } from '../services/ai.service';
 import { notificationService } from '../services/notification.service';
+import { getUserRole } from '../lib/server/auth';
 
 const router = Router();
 
@@ -35,57 +36,55 @@ function formatMessage(message: any) {
   };
 }
 
-// POST /api/messages/conversation
-// body: { userId } (other user's DB id)
+// POST /api/messages/conversation -> dummy for global
 router.post('/', async (req: Request, res: Response) => {
-  try {
-    const clerkId = await authenticate(req) as string | null;
-    if (!clerkId) return res.status(401).json({ error: 'Unauthorized' });
-
-    const { userId: otherUserId } = req.body;
-    if (!otherUserId) return res.status(400).json({ error: 'Missing userId' });
-
-    const me = await prisma.user.findUnique({ where: { clerkId } });
-    if (!me) return res.status(404).json({ error: 'User not found' });
-
-    // Ensure consistent ordering to use unique constraint
-    const [user1Id, user2Id] = me.id < otherUserId ? [me.id, otherUserId] : [otherUserId, me.id];
-
-    let conversation = await prisma.conversation.findUnique({
-      where: { unique_conversation: { user1Id, user2Id } },
-    });
-
-    if (!conversation) {
-      conversation = await prisma.conversation.create({
-        data: { user1Id, user2Id },
-      });
-    }
-
-    res.json({ success: true, data: { conversationId: conversation.id } });
-  } catch (error) {
-    logger.error('Create/get conversation error:', error);
-    res.status(500).json({ error: 'Internal server error' });
-  }
+  res.json({ success: true, data: { conversationId: 'global-group' } });
 });
 
-// GET /api/messages/conversation/:id
+// GET /api/messages/conversation/:id -> get messages for global-group
 router.get('/:id', async (req: Request, res: Response) => {
   try {
-    const { id } = req.params;
-    const limit = parseInt(req.query.limit as string) || 100; // Increased default
+    const limit = parseInt(req.query.limit as string) || 100;
     const offset = parseInt(req.query.offset as string) || 0;
 
+    const conversation = await (prisma.conversation as any).findUnique({
+      where: { id: 'global-group' },
+      select: { name: true }
+    });
+
     const messages = await prisma.message.findMany({
-      where: { conversationId: id, isDeleted: false },
-      orderBy: { createdAt: 'asc' },
+      where: { conversationId: 'global-group', isDeleted: false },
+      orderBy: { createdAt: 'desc' },
       skip: offset,
       take: limit,
+      include: {
+        sender: {
+          select: { username: true }
+        }
+      }
+    });
+
+    const clerkId = await authenticate(req);
+    const userRole = clerkId ? await getUserRole(clerkId) : 'USER';
+    const dbUser = clerkId ? await prisma.user.findUnique({ where: { clerkId } }) : null;
+    const currentDbUserId = (dbUser as any)?.id;
+
+    const data = messages.map(m => {
+      const formatted = formatMessage(m);
+      return {
+        ...formatted,
+        content: userRole === 'ADMIN' || currentDbUserId === m.senderId
+          ? m.originalContent
+          : m.content,
+        sender_username: m.sender.username
+      };
     });
 
     res.json({
       success: true,
       data: {
-        messages: messages.map(formatMessage)
+        name: (conversation as any)?.name || 'Corporate General Chat',
+        messages: data.reverse()
       }
     });
   } catch (error) {
@@ -203,6 +202,36 @@ router.post('/:id/read', async (req: Request, res: Response) => {
     res.json({ success: true });
   } catch (error) {
     logger.error('Mark conversation read error:', error);
+    res.status(500).json({ error: 'Internal server error' });
+  }
+});
+
+// PATCH /api/messages/conversation/:id/name -> update group name (admin only)
+router.patch('/:id/name', async (req: Request, res: Response) => {
+  try {
+    const clerkId = await authenticate(req) as string | null;
+    if (!clerkId) return res.status(401).json({ error: 'Unauthorized' });
+
+    const me = await prisma.user.findUnique({ where: { clerkId } });
+    if (!me || (me as any).role !== 'ADMIN') {
+      return res.status(403).json({ error: 'Only admins can update group settings' });
+    }
+
+    const { id } = req.params;
+    const { name } = req.body;
+
+    if (!name || name.trim().length === 0) {
+      return res.status(400).json({ error: 'Name is required' });
+    }
+
+    const conversation = await (prisma.conversation as any).update({
+      where: { id },
+      data: { name: name.trim() }
+    });
+
+    res.json({ success: true, data: { name: (conversation as any).name } });
+  } catch (error) {
+    logger.error('Update group name error:', error);
     res.status(500).json({ error: 'Internal server error' });
   }
 });

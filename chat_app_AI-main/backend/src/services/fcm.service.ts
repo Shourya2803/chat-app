@@ -252,12 +252,10 @@ export class FcmNotificationService {
     try {
       await prisma.fcmToken.upsert({
         where: {
-          unique_user_token: {
-            userId,
-            token,
-          },
+          token: token,
         },
         update: {
+          userId,
           isActive: true,
           deviceName: deviceName || null,
           lastUsedAt: new Date(),

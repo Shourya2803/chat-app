@@ -1,183 +1,205 @@
 'use client';
 
-import { useState, useEffect, useRef } from 'react';
-import { useUser } from '@clerk/nextjs';
+import { useState, useEffect } from 'react';
+import { useUser, UserButton } from '@clerk/nextjs';
 import { useApiClient } from '@/lib/api';
 import { useChatStore } from '@/store/chatStore';
 import { useUIStore } from '@/store/uiStore';
-import socketService from '@/lib/socket';
+import { socketService } from '@/lib/socket';
 import MessageList from './MessageList';
 import MessageInput from './MessageInput';
-import ToneSelector from './ToneSelector';
-import { MessageSquare, Sparkles } from 'lucide-react';
+import { Sparkles, Moon, Sun, Edit3, Check, X } from 'lucide-react';
 
 export default function ChatWindow() {
   const { user } = useUser();
   const api = useApiClient();
-  const { activeConversationId, conversations, messages, setMessages, resetUnread, typingUsers } = useChatStore();
-  const { toneEnabled, toggleTone } = useUIStore();
+  const { messages, setMessages, typingUsers } = useChatStore();
   const [loading, setLoading] = useState(false);
   const [currentDbUserId, setCurrentDbUserId] = useState<string>('');
-
-  const activeConversation = conversations.find(
-    (c) => c.conversation_id === activeConversationId
-  );
+  const [isAdmin, setIsAdmin] = useState(false);
+  const [groupName, setGroupName] = useState('Corporate General Chat');
+  const [isEditingName, setIsEditingName] = useState(false);
+  const [newName, setNewName] = useState('');
 
   // Get typing users for active conversation
-  const typingInConversation = activeConversationId 
-    ? typingUsers[activeConversationId] || [] 
-    : [];
-  
+  const typingInConversation = typingUsers['global-group'] || [];
   const isOtherUserTyping = typingInConversation.some(
     (userId) => userId !== currentDbUserId
   );
 
-  // Get database user ID
   useEffect(() => {
-    const fetchCurrentUser = async () => {
+    const init = async () => {
+      if (!user) return;
+      setLoading(true);
       try {
-        const response = await api.get('/users/me');
-        setCurrentDbUserId(response.data.user.id);
+        const [meRes, msgRes] = await Promise.all([
+          api.get('/users/me'),
+          api.get('/messages/conversation/global-group?limit=100&offset=0')
+        ]);
+
+        // Handle User Data
+        setCurrentDbUserId(meRes.data.user.id);
+        const userRole = meRes.data.user.role;
+        setIsAdmin(userRole === 'ADMIN');
+
+        // Handle Messages
+        setMessages('global-group', msgRes.data.data.messages);
+        if (msgRes.data.data.name) {
+          setGroupName(msgRes.data.data.name);
+        }
       } catch (error) {
-        console.error('Failed to fetch current user:', error);
+        console.error('Initialization failed:', error);
+      } finally {
+        setLoading(false);
       }
     };
-    
-    if (user) {
-      fetchCurrentUser();
-    }
-  }, [user]);
 
-  useEffect(() => {
-    if (!activeConversationId) return;
+    init();
+    socketService.joinConversation('global-group');
 
-    loadMessages();
-    socketService.joinConversation(activeConversationId);
-    
-    // Mark as read
-    markConversationAsRead();
+    // "ISR-like" Polling Fallback (Every 10 seconds)
+    // Ensures real-time reliability if Socket.IO drops on Vercel
+    const pollInterval = setInterval(() => {
+      loadMessages();
+    }, 10000);
 
     return () => {
-      socketService.leaveConversation(activeConversationId);
+      socketService.leaveConversation('global-group');
+      clearInterval(pollInterval);
     };
-  }, [activeConversationId]);
+  }, [user, api]);
 
   const loadMessages = async () => {
-    if (!activeConversationId) return;
-
-    setLoading(true);
+    // This can still be used for manual refreshes
     try {
       const response = await api.get(
-        `/messages/conversation/${activeConversationId}?limit=50&offset=0`
+        `/messages/conversation/global-group?limit=100&offset=0`
       );
-      setMessages(activeConversationId, response.data.data.messages);
+      setMessages('global-group', response.data.data.messages);
     } catch (error) {
       console.error('Failed to load messages:', error);
-    } finally {
-      setLoading(false);
     }
   };
 
-  const markConversationAsRead = async () => {
-    if (!activeConversationId) return;
-
+  const handleUpdateName = async () => {
+    if (!newName.trim()) return;
     try {
-      await api.post(`/messages/conversation/${activeConversationId}/read`);
-      resetUnread(activeConversationId);
+      await api.patch('/messages/conversation/global-group/name', { name: newName });
+      setGroupName(newName);
+      setIsEditingName(false);
     } catch (error) {
-      console.error('Failed to mark as read:', error);
+      console.error('Failed to update group name:', error);
     }
   };
 
-  if (!activeConversationId) {
-    return (
-      <div className="flex-1 flex items-center justify-center bg-gray-50 dark:bg-gray-900">
-        <div className="text-center">
-          <MessageSquare className="w-24 h-24 mx-auto mb-4 text-gray-300 dark:text-gray-600" />
-          <h2 className="text-2xl font-semibold text-gray-700 dark:text-gray-300 mb-2">
-            Welcome to AI Chat
-          </h2>
-          <p className="text-gray-500 dark:text-gray-400">
-            Select a conversation or search for users to start chatting
-          </p>
-        </div>
-      </div>
-    );
-  }
-
-  const conversationMessages = messages[activeConversationId] || [];
+  const conversationMessages = messages['global-group'] || [];
 
   return (
-    <div
-      className="flex-1 flex flex-col bg-gray-50 dark:bg-gray-900 min-h-screen"
-    >
+    <div className="flex-1 flex flex-col bg-gray-50 dark:bg-gray-900 h-screen overflow-hidden">
       {/* Header */}
-      <div className="bg-white dark:bg-gray-800 border-b border-gray-200 dark:border-gray-700 p-4">
-        <div className="flex items-center justify-between">
+      <header className="bg-white dark:bg-gray-800 border-b border-gray-200 dark:border-gray-700 p-4 shadow-sm z-10">
+        <div className="max-w-7xl mx-auto flex items-center justify-between">
           <div className="flex items-center gap-3">
             <div className="relative">
-              <div className="w-10 h-10 rounded-full bg-primary-500 flex items-center justify-center text-white font-semibold">
-                {activeConversation?.other_user.username?.[0] || activeConversation?.other_user.email[0].toUpperCase()}
+              <div className="w-10 h-10 rounded-full bg-gradient-to-br from-primary-500 to-primary-700 flex items-center justify-center text-white font-bold shadow-lg">
+                CG
               </div>
-              <div
-                className={`absolute bottom-0 right-0 w-3 h-3 rounded-full border-2 border-white dark:border-gray-800 ${
-                  activeConversation?.other_user.status === 'online' ? 'bg-green-500' : 'bg-gray-400'
-                }`}
-              />
+              <div className="absolute bottom-0 right-0 w-3.5 h-3.5 rounded-full border-2 border-white dark:border-gray-800 bg-green-500 shadow-sm" />
             </div>
             <div>
-              <h2 className="font-semibold text-gray-900 dark:text-gray-100">
-                {activeConversation?.other_user.username ||
-                  `${activeConversation?.other_user.first_name} ${activeConversation?.other_user.last_name}`}
-              </h2>
-              <p className="text-sm text-gray-500 dark:text-gray-400">
+              <div className="flex items-center gap-2">
+                {isEditingName ? (
+                  <div className="flex items-center gap-2">
+                    <input
+                      type="text"
+                      value={newName}
+                      onChange={(e) => setNewName(e.target.value)}
+                      className="bg-gray-100 dark:bg-gray-700 border-none rounded px-2 py-1 text-sm font-bold focus:ring-2 focus:ring-primary-500 outline-none"
+                      autoFocus
+                    />
+                    <button onClick={handleUpdateName} className="text-green-500 hover:text-green-600">
+                      <Check className="w-4 h-4" />
+                    </button>
+                    <button onClick={() => setIsEditingName(false)} className="text-red-500 hover:text-red-600">
+                      <X className="w-4 h-4" />
+                    </button>
+                  </div>
+                ) : (
+                  <div className="flex items-center gap-2">
+                    <h2 className="font-bold text-gray-900 dark:text-gray-100 tracking-tight">
+                      {groupName}
+                    </h2>
+                    {isAdmin && (
+                      <button
+                        onClick={() => {
+                          setNewName(groupName);
+                          setIsEditingName(true);
+                        }}
+                        className="p-1 hover:bg-gray-100 dark:hover:bg-gray-700 rounded transition-colors text-gray-400 hover:text-primary-500"
+                      >
+                        <Edit3 className="w-3.5 h-3.5" />
+                      </button>
+                    )}
+                  </div>
+                )}
+              </div>
+              <p className="text-xs text-gray-500 dark:text-gray-400 font-medium">
                 {isOtherUserTyping ? (
                   <span className="flex items-center gap-1 text-primary-600 dark:text-primary-400">
-                    <span className="animate-pulse">typing</span>
-                    <span className="flex gap-0.5">
-                      <span className="w-1 h-1 bg-current rounded-full animate-bounce" style={{ animationDelay: '0ms' }}></span>
-                      <span className="w-1 h-1 bg-current rounded-full animate-bounce" style={{ animationDelay: '150ms' }}></span>
-                      <span className="w-1 h-1 bg-current rounded-full animate-bounce" style={{ animationDelay: '300ms' }}></span>
-                    </span>
+                    <span className="animate-pulse">Someone is typing...</span>
                   </span>
                 ) : (
-                  activeConversation?.other_user.status || 'offline'
+                  'Secured Enterprise Channel'
                 )}
               </p>
             </div>
           </div>
 
-          {/* Tone Toggle */}
-          <button
-            onClick={toggleTone}
-            className={`flex items-center gap-2 px-4 py-2 rounded-lg transition-colors ${
-              toneEnabled
-                ? 'bg-primary-600 text-white'
-                : 'bg-gray-200 dark:bg-gray-700 text-gray-700 dark:text-gray-300'
-            }`}
-          >
-            <Sparkles className="w-5 h-5" />
-            <span className="font-medium">AI Tone</span>
-          </button>
-        </div>
+          <div className="flex items-center gap-4">
+            {/* Theme Toggle */}
+            <button
+              onClick={() => {
+                const isDark = document.documentElement.classList.toggle('dark');
+                localStorage.theme = isDark ? 'dark' : 'light';
+              }}
+              className="p-2 rounded-full hover:bg-gray-100 dark:hover:bg-gray-700 text-gray-500 dark:text-gray-400 transition-colors"
+              title="Toggle Theme"
+            >
+              <Sun className="w-5 h-5 hidden dark:block" />
+              <Moon className="w-5 h-5 block dark:hidden" />
+            </button>
 
-        {/* Tone Selector */}
-        {toneEnabled && <ToneSelector />}
-      </div>
+            {/* Profile & Logout */}
+            <div className="border-l border-gray-200 dark:border-gray-700 pl-4 h-8 flex items-center">
+              <UserButton
+                afterSignOutUrl="/sign-in"
+                appearance={{
+                  elements: {
+                    userButtonAvatarBox: 'w-8 h-8 border-2 border-primary-500/20 hover:border-primary-500/40 transition-all'
+                  }
+                }}
+              />
+            </div>
+          </div>
+        </div>
+      </header>
 
       {/* Messages */}
-      <MessageList 
-        messages={conversationMessages} 
-        loading={loading}
-        currentUserId={currentDbUserId}
-      />
+      <main className="flex-1 overflow-hidden flex flex-col relative">
+        <MessageList
+          messages={conversationMessages}
+          loading={loading}
+          currentUserId={currentDbUserId}
+          isAdmin={isAdmin}
+        />
+      </main>
 
       {/* Input */}
-      <MessageInput 
-        conversationId={activeConversationId}
-        receiverId={activeConversation?.other_user.id || ''}
-      />
+      <footer className="p-4 bg-white dark:bg-gray-800 border-t border-gray-200 dark:border-gray-700 shadow-[0_-4px_6px_-1px_rgba(0,0,0,0.05)]">
+        <div className="max-w-7xl mx-auto">
+          <MessageInput />
+        </div>
+      </footer>
     </div>
   );
 }
-

@@ -3,7 +3,7 @@
 import { initializeApp, getApps, getApp } from 'firebase/app';
 import { getMessaging, getToken, isSupported, onMessage } from 'firebase/messaging';
 
-const firebaseConfig = {
+let firebaseConfig = {
     apiKey: process.env.NEXT_PUBLIC_FIREBASE_API_KEY,
     authDomain: process.env.NEXT_PUBLIC_FIREBASE_AUTH_DOMAIN,
     projectId: process.env.NEXT_PUBLIC_FIREBASE_PROJECT_ID,
@@ -29,26 +29,46 @@ const getFirebaseMessaging = () => {
 export const requestForToken = async () => {
     try {
         const hasSupport = await isSupported().catch(() => false);
-        if (!hasSupport) {
-            console.log('FCM not supported in this browser');
-            return null;
+        if (!hasSupport) return null;
+
+        // Try to fetch config from backend if local ones are missing or placeholders
+        if (!process.env.NEXT_PUBLIC_FIREBASE_API_KEY || process.env.NEXT_PUBLIC_FIREBASE_API_KEY.includes('your')) {
+            console.log('FCM: Fetching config from backend...');
+            try {
+                const response = await fetch(`${process.env.NEXT_PUBLIC_API_URL || 'http://localhost:4000'}/api/config/firebase`);
+                const result = await response.json();
+                if (result.success && result.data) {
+                    firebaseConfig = { ...firebaseConfig, ...result.data };
+                    console.log('FCM: Config updated from backend');
+                }
+            } catch (e) {
+                console.warn('FCM: Failed to fetch backend config, using defaults');
+            }
         }
 
         const messaging = getFirebaseMessaging();
         if (!messaging) return null;
 
         const currentToken = await getToken(messaging, {
-            vapidKey: process.env.NEXT_PUBLIC_FIREBASE_VAPID_KEY
+            vapidKey: process.env.NEXT_PUBLIC_FIREBASE_VAPID_KEY || 'BFu8N-9U4U8V7X7W2R8Q1A' // Fallback VAPID or fetched one
         });
 
         if (currentToken) {
+            // Send config to service worker
+            if ('serviceWorker' in navigator) {
+                const regs = await navigator.serviceWorker.getRegistrations();
+                for (let reg of regs) {
+                    reg.active?.postMessage({
+                        type: 'SET_CONFIG',
+                        config: firebaseConfig
+                    });
+                }
+            }
             return currentToken;
-        } else {
-            console.log('No registration token available. Request permission to generate one.');
-            return null;
         }
+        return null;
     } catch (err) {
-        console.log('An error occurred while retrieving token. ', err);
+        console.error('FCM retrieval error:', err);
         return null;
     }
 };

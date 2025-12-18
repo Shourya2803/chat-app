@@ -56,9 +56,9 @@ class SocketService {
         // Send Clerk token for authentication
         auth: { token },
 
-        // Use WebSocket transport for better performance
-        // Fall back to polling if WebSocket fails
-        transports: ['websocket', 'polling'],
+        // Primary fallback for serverless (Vercel)
+        // Ensure polling is attempted first or as a reliable fallback
+        transports: ['polling', 'websocket'],
 
         // Reconnection settings
         reconnection: true,
@@ -150,11 +150,7 @@ class SocketService {
 
   // Send a message
   sendMessage(data: {
-    receiverId: string;
     content: string;
-    conversationId: string;
-    applyTone?: boolean;
-    toneType?: 'professional' | 'polite' | 'formal' | 'auto';
     mediaUrl?: string;
   }): void {
     if (!this.socket?.connected) {

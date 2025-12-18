@@ -4,6 +4,7 @@ export interface Message {
   id: string;
   conversation_id: string;
   sender_id: string;
+  sender_username?: string; // Added for global chat
   receiver_id: string;
   content: string;
   original_content?: string;
@@ -46,23 +47,23 @@ interface ChatState {
   typingUsers: Record<string, string[]>;
   onlineUsers: Set<string>;
   unreadCounts: Record<string, number>;
-  
+
   // Actions
   setConversations: (conversations: Conversation[]) => void;
   addConversation: (conversation: Conversation) => void;
   updateConversation: (conversationId: string, updates: Partial<Conversation>) => void;
-  
+
   setMessages: (conversationId: string, messages: Message[]) => void;
   addMessage: (message: Message) => void;
   updateMessage: (messageId: string, updates: Partial<Message>) => void;
-  
+
   setActiveConversation: (conversationId: string | null) => void;
-  
+
   setTyping: (conversationId: string, userId: string, isTyping: boolean) => void;
-  
+
   setUserOnline: (userId: string) => void;
   setUserOffline: (userId: string) => void;
-  
+
   setUnreadCount: (conversationId: string, count: number) => void;
   incrementUnread: (conversationId: string) => void;
   resetUnread: (conversationId: string) => void;
@@ -101,6 +102,10 @@ export const useChatStore = create<ChatState>((set, get) => ({
   addMessage: (message) =>
     set((state) => {
       const conversationMessages = state.messages[message.conversation_id] || [];
+      // Prevent duplicates
+      if (conversationMessages.some((msg) => msg.id === message.id)) {
+        return state;
+      }
       return {
         messages: {
           ...state.messages,
