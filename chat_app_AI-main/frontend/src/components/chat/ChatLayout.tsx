@@ -36,11 +36,15 @@ export default function ChatLayout() {
         toast.success('Connected to chat server');
 
         // Disable Socket.IO on Vercel/serverless environments
+        // By default we avoid opening persistent Socket connections from Vercel builds
+        // because serverless platforms can cause connection limits. If you want to
+        // enable real-time features from the browser on Vercel, set
+        // `NEXT_PUBLIC_ENABLE_SOCKETS=true` in Vercel Project → Environment Variables.
         const isServerless = typeof window !== 'undefined' && (
           process.env.NEXT_PUBLIC_VERCEL_ENV !== undefined ||
           window.location.hostname.includes('vercel.app')
-        );
-        
+        ) && process.env.NEXT_PUBLIC_ENABLE_SOCKETS !== 'true';
+
         if (isServerless) {
           console.warn('⚠️ Real-time features disabled on Vercel. Deploy on Railway/Render for WebSocket support.');
           return;

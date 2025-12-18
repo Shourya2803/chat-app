@@ -32,11 +32,18 @@ export default function NotificationBell() {
       setLoading(true);
       const token = await getToken();
 
+      if (!token) {
+        console.warn('No auth token available from Clerk; notification request may return 401');
+        setLoading(false);
+        return;
+      }
+
       // Fetch from backend notification API
       const notifResponse = await fetch(`${process.env.NEXT_PUBLIC_API_URL || 'http://localhost:4000'}/api/notifications`, {
         headers: {
           'Authorization': `Bearer ${token}`,
         },
+        credentials: 'include',
       });
 
       if (notifResponse.ok) {
