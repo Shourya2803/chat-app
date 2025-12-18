@@ -146,6 +146,7 @@ model FcmToken {
   // Relations
   user        User     @relation(fields: [userId], references: [id], onDelete: Cascade)
 
+  @@unique([userId, token], name: "unique_user_token")
   @@index([userId, isActive], name: "idx_fcm_tokens_user")
   @@index([isActive], name: "idx_fcm_tokens_active")
   @@map("fcm_tokens")
