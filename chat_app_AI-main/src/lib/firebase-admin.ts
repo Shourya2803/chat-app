@@ -25,7 +25,7 @@ try {
 
         adminApp = admin.initializeApp({
             credential: admin.credential.cert(serviceAccount),
-            databaseURL: process.env.FIREBASE_DATABASE_URL,
+            databaseURL: process.env.FIREBASE_DATABASE_URL || process.env.NEXT_PUBLIC_FIREBASE_DATABASE_URL,
         });
     } else {
         // If already initialized, use the existing app
@@ -33,10 +33,11 @@ try {
     }
 
     // Initialize Database
-    if (adminApp && process.env.FIREBASE_DATABASE_URL) {
+    const dbUrl = process.env.FIREBASE_DATABASE_URL || process.env.NEXT_PUBLIC_FIREBASE_DATABASE_URL;
+    if (adminApp && dbUrl) {
         adminDb = admin.database(adminApp);
     } else if (adminApp) {
-        console.warn('⚠️ FIREBASE_DATABASE_URL is missing. Real-time DB operations will fail.');
+        console.warn('⚠️ Firebase Database URL is missing (tried FIREBASE_DATABASE_URL and NEXT_PUBLIC_FIREBASE_DATABASE_URL). Real-time DB operations will fail.');
     }
 
 } catch (error) {
