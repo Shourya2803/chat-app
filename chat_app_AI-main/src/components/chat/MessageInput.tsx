@@ -2,23 +2,17 @@
 
 import { useState, useRef, ChangeEvent } from 'react';
 import { useUIStore } from '@/store/uiStore';
-import socketService from '@/lib/socket';
 import { useApiClient } from '@/lib/api';
 import { Send, Image as ImageIcon, X } from 'lucide-react';
+import { useChatStore } from '@/store/chatStore';
 
 const toast = {
   error: (msg: string) => console.error('Error:', msg),
   success: (msg: string) => console.log('Success:', msg),
 };
 
-interface MessageInputProps {
-  conversationId: string;
-  receiverId: string;
-}
-
-export default function MessageInput({ conversationId, receiverId }: MessageInputProps) {
+export default function MessageInput() {
   const api = useApiClient();
-  const { toneEnabled, selectedTone } = useUIStore();
   const [message, setMessage] = useState('');
   const [imageFile, setImageFile] = useState<File | null>(null);
   const [imagePreview, setImagePreview] = useState<string | null>(null);
@@ -73,13 +67,13 @@ export default function MessageInput({ conversationId, receiverId }: MessageInpu
         try {
           const formData = new FormData();
           formData.append('image', imageFile);
-          
+
           const response = await api.post('/upload/image', formData, {
             headers: {
               'Content-Type': 'multipart/form-data',
             },
           });
-          
+
           mediaUrl = response.data.data.url;
           toast.success('Image uploaded');
         } catch (error) {
@@ -91,52 +85,25 @@ export default function MessageInput({ conversationId, receiverId }: MessageInpu
         }
       }
 
-      // Try Socket.IO first, fallback to REST API
-      const isVercel = process.env.NEXT_PUBLIC_VERCEL_ENV;
-      
-      if (isVercel) {
-        // Use REST API on Vercel (no WebSocket support)
-        const apiPayload = {
-          content: message.trim() || 'Image',
-          receiverId,
-          tone: toneEnabled && selectedTone ? selectedTone : undefined,
-          imageUrl: mediaUrl,
-        };
-        
-        console.log('Sending via REST API:', apiPayload);
-        
-        try {
-          const response = await api.post(`/messages/conversation/${conversationId}`, apiPayload);
+      // Send message via new serverless API route
+      const apiPayload = {
+        content: message.trim() || 'Image',
+        mediaUrl: mediaUrl,
+      };
 
-          if (response.data.success) {
-            // Add message to local store immediately
-            const { useChatStore } = await import('@/store/chatStore');
-            useChatStore.getState().addMessage(response.data.data);
-          }
-        } catch (error) {
-          console.error('Failed to send message via API:', error);
-          throw error;
-        }
-      } else {
-        // Use Socket.IO when available
-        const messagePayload = {
-          receiverId,
-          content: message.trim() || 'Image',
-          conversationId,
-          applyTone: toneEnabled && !!selectedTone,
-          toneType: selectedTone || undefined,
-          mediaUrl,
-        };
-        
-        console.log('Sending via Socket.IO:', messagePayload);
-        
-        socketService.sendMessage(messagePayload);
+      console.log('📤 Sending message via API:', apiPayload);
+
+      const response = await api.post(`/send-message`, apiPayload);
+
+      if (response.data.success) {
+        console.log('✅ Message sent successfully');
+        // Message will be received via Firebase listener
       }
 
       // Clear input
       setMessage('');
       removeImage();
-      
+
       // Reset textarea height
       if (textareaRef.current) {
         textareaRef.current.style.height = 'auto';
@@ -156,16 +123,6 @@ export default function MessageInput({ conversationId, receiverId }: MessageInpu
     }
   };
 
-  const handleTyping = () => {
-    socketService.startTyping(conversationId);
-    
-    // Stop typing after 3 seconds of inactivity
-    const timeout = setTimeout(() => {
-      socketService.stopTyping(conversationId);
-    }, 3000);
-
-    return () => clearTimeout(timeout);
-  };
 
   const adjustTextareaHeight = () => {
     if (textareaRef.current) {
@@ -195,12 +152,7 @@ export default function MessageInput({ conversationId, receiverId }: MessageInpu
         </div>
       )}
 
-      {/* Tone indicator */}
-      {toneEnabled && selectedTone && (
-        <div className="mb-2 text-sm text-primary-600 dark:text-primary-400 flex items-center gap-2">
-          <span className="font-medium">AI Tone: {selectedTone}</span>
-        </div>
-      )}
+      {/* Always-on AI enabled status info could go here or header */}
 
       <div className="flex items-end gap-2">
         {/* Image upload button */}
@@ -226,7 +178,6 @@ export default function MessageInput({ conversationId, receiverId }: MessageInpu
           onChange={(e) => {
             setMessage(e.target.value);
             adjustTextareaHeight();
-            handleTyping();
           }}
           onKeyPress={handleKeyPress}
           placeholder="Type a message..."

@@ -1,50 +1,23 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { auth } from '@clerk/nextjs';
-import prisma from '@/lib/server/database/prisma';
+
+const BACKEND_URL = process.env.BACKEND_URL || process.env.NEXT_PUBLIC_API_URL || 'http://localhost:4000';
 
 export const dynamic = 'force-dynamic';
 
-export async function POST(
-  request: NextRequest,
-  { params }: { params: Promise<{ id: string }> }
-) {
+async function proxy(req: NextRequest) {
+  const backendPath = `${BACKEND_URL}${req.nextUrl.pathname}${req.nextUrl.search}`;
+  const headers: Record<string, string> = {};
+  for (const [k, v] of req.headers) if (v) headers[k] = v;
+
   try {
-    const { userId } = auth();
-    if (!userId) {
-      return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
-    }
-
-    const { id } = await params;
-    const conversationId = id;
-
-    // Get the current user from database
-    const currentUser = await prisma.user.findUnique({
-      where: { clerkId: userId },
-    });
-
-    if (!currentUser) {
-      return NextResponse.json({ error: 'User not found' }, { status: 404 });
-    }
-
-    // Mark all messages in this conversation as read where current user is receiver
-    await prisma.message.updateMany({
-      where: {
-        conversationId: conversationId,
-        receiverId: currentUser.id,
-        isRead: false,
-      },
-      data: {
-        isRead: true,
-        readAt: new Date(),
-      },
-    });
-
-    return NextResponse.json({ success: true });
-  } catch (error) {
-    console.error('Mark as read error:', error);
-    return NextResponse.json(
-      { error: 'Internal server error' },
-      { status: 500 }
-    );
+    const res = await fetch(backendPath, { method: req.method, headers, body: req.method !== 'GET' && req.method !== 'HEAD' ? await req.arrayBuffer() : undefined });
+    const body = await res.arrayBuffer();
+    const responseHeaders = new Headers(res.headers);
+    responseHeaders.delete('transfer-encoding');
+    return new NextResponse(body, { status: res.status, headers: responseHeaders });
+  } catch (err: any) {
+    return NextResponse.json({ error: 'Backend unreachable', details: String(err?.message || err) }, { status: 502 });
   }
 }
+
+export const POST = proxy;

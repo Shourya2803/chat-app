@@ -1,44 +1,32 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { auth } from '@clerk/nextjs';
-import prisma from '@/lib/server/database/prisma';
+
+const BACKEND_URL = process.env.BACKEND_URL || process.env.NEXT_PUBLIC_API_URL || 'http://localhost:4000';
 
 export const dynamic = 'force-dynamic';
 
-export async function GET() {
+async function proxy(req: NextRequest) {
+  const backendPath = `${BACKEND_URL}${req.nextUrl.pathname}${req.nextUrl.search}`;
+  const headers: Record<string, string> = {};
+  for (const [k, v] of req.headers) if (v) headers[k] = v;
+
   try {
-    const { userId } = auth();
-    if (!userId) {
-      return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+    const init: RequestInit = { method: req.method, headers };
+    if (req.method !== 'GET' && req.method !== 'HEAD') {
+      const text = await req.text();
+      if (text) init.body = text;
     }
 
-    // Get database user
-    const user = await prisma.user.findUnique({
-      where: { clerkId: userId },
-      select: {
-        id: true,
-        clerkId: true,
-        email: true,
-        username: true,
-        firstName: true,
-        lastName: true,
-        avatarUrl: true,
-        status: true,
-      },
-    });
-
-    if (!user) {
-      return NextResponse.json({ error: 'User not found' }, { status: 404 });
-    }
-
-    return NextResponse.json({
-      user,
-      success: true,
-    });
-  } catch (error) {
-    console.error('Get current user error:', error);
-    return NextResponse.json(
-      { error: 'Internal server error' },
-      { status: 500 }
-    );
+    const res = await fetch(backendPath, init);
+    const body = await res.arrayBuffer();
+    const responseHeaders = new Headers(res.headers);
+    responseHeaders.delete('transfer-encoding');
+    return new NextResponse(body, { status: res.status, headers: responseHeaders });
+  } catch (err: any) {
+    return NextResponse.json({ error: 'Backend unreachable', details: String(err?.message || err) }, { status: 502 });
   }
 }
+
+export const GET = proxy;
+export const POST = proxy;
+export const PUT = proxy;
+export const DELETE = proxy;

@@ -1,14 +1,11 @@
-node_modules
-.next
-out
-dist
+# Frontend .gitignore
+node_modules/
+.next/
+out/
 .env
-.env.local
-.env.production
-.env.development
+.env*.local
 *.log
 .DS_Store
-.vscode
-.idea
 
-/src/generated/prisma
+# Vercel
+.vercel

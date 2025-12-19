@@ -1,0 +1,128 @@
+import { NextRequest, NextResponse } from 'next/server';
+import { auth } from '@clerk/nextjs';
+import { prisma } from '@/lib/prisma';
+import { adminDb } from '@/lib/firebase-admin';
+import { aiService } from '@/lib/ai.service';
+
+export const runtime = 'nodejs';
+
+export async function POST(req: NextRequest) {
+    try {
+        // Authenticate with Clerk
+        const { userId: clerkId } = auth();
+
+        if (!clerkId) {
+            return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+        }
+
+        // Get the user from database
+        const user = await prisma.user.findUnique({
+            where: { clerkId },
+            select: { id: true, username: true, role: true },
+        });
+
+        if (!user) {
+            return NextResponse.json({ error: 'User not found' }, { status: 404 });
+        }
+
+        // Parse request body
+        const body = await req.json();
+        const { content, mediaUrl } = body;
+
+        if (!content || !content.trim()) {
+            return NextResponse.json({ error: 'Content is required' }, { status: 400 });
+        }
+
+        // Apply AI tone conversion (always professional)
+        let finalContent = content;
+        let originalContent = content;
+        const appliedTone = 'professional';
+
+        console.log('🤖 Applying professional tone conversion');
+
+        try {
+            const timeoutPromise = new Promise((_, reject) =>
+                setTimeout(() => reject(new Error('Gemini API timeout after 30s')), 30000)
+            );
+
+            const result = await Promise.race([
+                aiService.convertTone(content, 'professional'),
+                timeoutPromise
+            ]) as any;
+
+            if (result.success && result.convertedText) {
+                finalContent = result.convertedText;
+                console.log('✅ Tone conversion successful');
+            } else {
+                console.warn(`⚠️ Tone conversion failed: ${result.error || 'Empty response'}`);
+            }
+        } catch (error: any) {
+            console.error(`❌ Tone conversion error: ${error.message}`);
+        }
+
+        // Save to Prisma database
+        const timestamp = Date.now();
+        const messageId = `msg_${timestamp}_${user.id.substring(0, 8)}`;
+
+        // Get system user for receiver (global chat)
+        const systemUser = await prisma.user.findUnique({
+            where: { clerkId: 'system-admin' }
+        });
+        const receiverId = systemUser?.id || user.id;
+
+        const message = await prisma.message.create({
+            data: {
+                conversationId: 'global-group',
+                senderId: user.id,
+                receiverId: receiverId,
+                content: finalContent,
+                originalContent: originalContent,
+                toneApplied: appliedTone,
+                mediaUrl: mediaUrl || null,
+            },
+        });
+
+        // Save to Firebase Realtime Database for instant sync
+        const firebaseMessage = {
+            id: message.id,
+            sender_id: user.id,
+            sender_username: user.username || 'Anonymous',
+            content: finalContent,
+            original_content: originalContent,
+            timestamp: timestamp,
+            is_admin_message: (user as any).role === 'ADMIN',
+            media_url: mediaUrl || null,
+        };
+
+        await adminDb.ref(`messages/${timestamp}`).set(firebaseMessage);
+
+        console.log(`✅ Message saved to both Prisma and Firebase: ${message.id}`);
+
+        return NextResponse.json({
+            success: true,
+            data: {
+                message: {
+                    id: message.id,
+                    conversation_id: message.conversationId,
+                    sender_id: message.senderId,
+                    receiver_id: message.receiverId,
+                    content: message.content,
+                    original_content: message.originalContent,
+                    tone_applied: message.toneApplied,
+                    message_type: mediaUrl ? 'image' : 'text',
+                    media_url: message.mediaUrl,
+                    status: 'sent',
+                    is_read: false,
+                    created_at: message.createdAt,
+                    updated_at: message.updatedAt,
+                },
+            },
+        });
+    } catch (error: any) {
+        console.error('❌ Send message error:', error);
+        return NextResponse.json(
+            { error: 'Failed to send message', details: error.message },
+            { status: 500 }
+        );
+    }
+}

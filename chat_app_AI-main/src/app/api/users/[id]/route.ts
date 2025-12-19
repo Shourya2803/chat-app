@@ -1,33 +1,24 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { auth } from '@clerk/nextjs';
-import { getDb } from '@/lib/server/database/client';
+
+const BACKEND_URL = process.env.BACKEND_URL || process.env.NEXT_PUBLIC_API_URL || 'http://localhost:4000';
 
 export async function GET(
   request: NextRequest,
   { params }: { params: { id: string } }
 ) {
   try {
-    const { userId } = auth();
-    if (!userId) {
-      return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
-    }
+    const backendPath = `${BACKEND_URL}${request.nextUrl.pathname}${request.nextUrl.search}`;
+    const headers: Record<string, string> = {};
+    for (const [k, v] of request.headers) if (v) headers[k] = v;
 
-    const db = await getDb();
-    const result = await db.query(
-      'SELECT id, email, name, avatar_url, bio, status FROM users WHERE id = $1',
-      [params.id]
-    );
-
-    if (result.rows.length === 0) {
-      return NextResponse.json({ error: 'User not found' }, { status: 404 });
-    }
-
-    return NextResponse.json({ user: result.rows[0] });
+    const res = await fetch(backendPath, { method: request.method, headers });
+    const body = await res.arrayBuffer();
+    const responseHeaders = new Headers(res.headers);
+    responseHeaders.delete('transfer-encoding');
+    return new NextResponse(body, { status: res.status, headers: responseHeaders });
   } catch (error) {
-    console.error('Get user error:', error);
-    return NextResponse.json(
-      { error: 'Internal server error' },
-      { status: 500 }
-    );
+    console.error('Proxy get user error:', error);
+    const errorMessage = error instanceof Error ? error.message : String(error);
+    return NextResponse.json({ error: 'Backend unreachable', details: errorMessage }, { status: 502 });
   }
 }

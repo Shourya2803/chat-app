@@ -13,6 +13,10 @@ const nextConfig = {
       },
     ],
   },
+  // Serverless-ready configuration for Vercel
+  experimental: {
+    serverActions: true,
+  },
 }
 
 module.exports = nextConfig

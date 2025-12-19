@@ -1,58 +1,32 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { auth } from '@clerk/nextjs';
-import prisma from '@/lib/server/database/prisma';
+
+const BACKEND_URL = process.env.BACKEND_URL || process.env.NEXT_PUBLIC_API_URL || 'http://localhost:4000';
 
 export const dynamic = 'force-dynamic';
 
-export async function GET(request: NextRequest) {
+async function proxy(req: NextRequest) {
+  const backendPath = `${BACKEND_URL}${req.nextUrl.pathname}${req.nextUrl.search}`;
+  const headers: Record<string, string> = {};
+  for (const [k, v] of req.headers) if (v) headers[k] = v;
+
   try {
-    const { userId } = auth();
-    if (!userId) {
-      return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
-    }
-
-    const searchParams = request.nextUrl.searchParams;
-    const query = searchParams.get('q') || '';
-
-    if (query.length < 2) {
-      return NextResponse.json({ 
-        data: { users: [] },
-        success: true 
-      });
-    }
-
-    const users = await prisma.user.findMany({
-      where: {
-        clerkId: { not: userId },
-        OR: [
-          { username: { contains: query, mode: 'insensitive' } },
-          { email: { contains: query, mode: 'insensitive' } },
-          { firstName: { contains: query, mode: 'insensitive' } },
-          { lastName: { contains: query, mode: 'insensitive' } },
-        ],
-      },
-      select: {
-        id: true,
-        clerkId: true,
-        email: true,
-        username: true,
-        firstName: true,
-        lastName: true,
-        avatarUrl: true,
-        status: true,
-      },
-      take: 20,
+    const res = await fetch(backendPath, {
+      method: req.method,
+      headers,
+      body: req.method !== 'GET' && req.method !== 'HEAD' ? await req.arrayBuffer() : undefined,
     });
 
-    return NextResponse.json({ 
-      data: { users },
-      success: true 
-    });
-  } catch (error) {
-    console.error('Search users error:', error);
-    return NextResponse.json(
-      { error: 'Internal server error', details: error instanceof Error ? error.message : 'Unknown error' },
-      { status: 500 }
-    );
+    const body = await res.arrayBuffer();
+    const responseHeaders = new Headers(res.headers);
+    responseHeaders.delete('transfer-encoding');
+    return new NextResponse(body, { status: res.status, headers: responseHeaders });
+  } catch (err: any) {
+    return NextResponse.json({ error: 'Backend unreachable', details: String(err?.message || err) }, { status: 502 });
   }
 }
+
+export const GET = proxy;
+export const POST = proxy;
+export const PUT = proxy;
+export const DELETE = proxy;
+export const PATCH = proxy;
