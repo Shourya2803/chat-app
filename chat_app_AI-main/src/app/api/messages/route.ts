@@ -126,7 +126,12 @@ export async function GET(req: NextRequest) {
     } catch (error: any) {
         console.error('❌ Get messages error:', error);
         return NextResponse.json(
-            { error: 'Failed to fetch messages', details: error.message },
+            {
+                error: 'Failed to fetch messages',
+                message: error.message,
+                code: error.code,
+                details: error.stack?.split('\n')[0]
+            },
             { status: 500 }
         );
     }
