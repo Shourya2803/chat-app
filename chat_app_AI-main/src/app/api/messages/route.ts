@@ -7,11 +7,14 @@ export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
 
 export async function GET(req: NextRequest) {
+    console.log('📨 [MESSAGES] GET Request received');
     try {
         // Authenticate with Clerk
         const { userId: clerkId } = auth();
+        console.log('📨 [MESSAGES] Clerk ID:', clerkId);
 
         if (!clerkId) {
+            console.warn('📨 [MESSAGES] Unauthorized');
             return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
         }
 
@@ -21,17 +24,20 @@ export async function GET(req: NextRequest) {
             select: { id: true, role: true },
         });
 
-        if (!user) {
-            return NextResponse.json({ error: 'User not found' }, { status: 404 });
-        }
+        // If user not found in DB, they aren't an admin and won't have a DB user ID yet.
+        // We don't 404 here anymore to allow initial load while sync happens.
+        const isAdmin = user ? (user as any).role === 'ADMIN' : false;
+        const currentUserId = user?.id || clerkId; // Fallback to clerkId for identification if not synced
 
-        const isAdmin = (user as any).role === 'ADMIN';
-        const currentUserId = user.id;
+        if (!user) {
+            console.log('📨 [MESSAGES] User not in DB yet, treating as guest/non-admin');
+        }
 
         // Get query parameters
         const searchParams = req.nextUrl.searchParams;
         const limit = parseInt(searchParams.get('limit') || '100');
         const offset = parseInt(searchParams.get('offset') || '0');
+        console.log(`📨 [MESSAGES] Params - Limit: ${limit}, Offset: ${offset}`);
 
         // Redis Cache Check (Fast Load)
         // Only checking for initial page (offset 0) to speed up "above the fold" load

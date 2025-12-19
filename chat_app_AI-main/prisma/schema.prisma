@@ -89,11 +89,28 @@ model Message {
   isDeleted Boolean   @default(false) @map("is_deleted")
   deletedAt DateTime? @map("deleted_at")
 
+  // Link to Cloudinary Media
+  media Media? @relation(fields: [mediaUrl], references: [url])
+
   @@index([conversationId, createdAt(sort: Desc)], name: "idx_messages_conversation")
   @@index([senderId, createdAt(sort: Desc)], name: "idx_messages_sender")
   @@index([receiverId, createdAt(sort: Desc)], name: "idx_messages_receiver")
   @@index([receiverId, isRead, createdAt(sort: Desc)], name: "idx_messages_unread")
   @@map("messages")
+}
+
+model Media {
+  id        String   @id @default(uuid())
+  url       String   @unique
+  publicId  String?  @map("public_id")
+  type      String?  @default("image")
+  size      Int?     
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  messages Message[]
+
+  @@map("media")
 }
 
 model MessageRead {

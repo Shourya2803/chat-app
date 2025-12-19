@@ -50,9 +50,35 @@ export default function ChatWindow() {
     const init = async () => {
       setLoading(true);
       try {
-        // 1. FAST LOAD: Fetch recent messages (Redis cache hits here)
-        // We ask for 20 to ensure we fill the screen even if cache has 10.
-        // If Redis has 10, API might return 10 (cached).
+        // 1. Ensure user is synced and get DB profile
+        console.log('🔄 Syncing user profile...');
+        try {
+          // First try to get profile
+          let profileRes;
+          try {
+            profileRes = await authApi.getProfile();
+          } catch (e: any) {
+            console.log('🔄 Profile not found, attempting sync...');
+            await authApi.syncUser();
+            profileRes = await authApi.getProfile();
+          }
+
+          if (profileRes.data.success && profileRes.data.data) {
+            setCurrentDbUserId(profileRes.data.data.id);
+            const userRole = profileRes.data.data.role || 'USER';
+            setIsAdmin(userRole === 'ADMIN');
+            console.log('✅ User sync complete');
+          } else {
+            console.warn('Could not fetch DB profile after sync');
+            setCurrentDbUserId(user.id);
+          }
+        } catch (e) {
+          console.error('❌ Failed to sync/fetch profile:', e);
+          setCurrentDbUserId(user.id);
+        }
+
+        // 2. FAST LOAD: Fetch recent messages (Redis cache hits here)
+        console.log('📨 Fetching initial messages...');
         const fastRes = await messageApi.getMessages('global-group', 20, 0);
 
         if (fastRes.data.success && fastRes.data.data.messages) {
@@ -63,23 +89,15 @@ export default function ChatWindow() {
             setGroupName(fastRes.data.data.name);
           }
 
-          // 2. BACKGROUND LOAD: Fetch deeper history silently
-          // Use the actual length received as offset to ensure no gap
+          // 3. BACKGROUND LOAD: Fetch deeper history silently
           const currentCount = initialMessages.length;
-
           if (currentCount > 0) {
-            // Fetch enough to reach ~100 total (e.g. if we got 10, ask for 90)
             const remainingLimit = 100 - currentCount;
             if (remainingLimit > 0) {
               const historyRes = await messageApi.getMessages('global-group', remainingLimit, currentCount);
-
               if (historyRes.data.success && historyRes.data.data.messages.length > 0) {
-                const olderMessages = historyRes.data.data.messages;
-                // Using prependMessages to safely add strictly older messages
-                prependMessages('global-group', olderMessages);
-
-                // If background fetch returned full batch, allows loading more
-                if (olderMessages.length < remainingLimit) {
+                prependMessages('global-group', historyRes.data.data.messages);
+                if (historyRes.data.data.messages.length < remainingLimit) {
                   setHasMore(false);
                 }
               } else {
@@ -89,24 +107,6 @@ export default function ChatWindow() {
           } else {
             setHasMore(false);
           }
-        }
-
-        // Get user info from Clerk
-        const userRole = (user as any).publicMetadata?.role || 'USER';
-        setIsAdmin(userRole === 'ADMIN');
-
-        // Fetch real DB user ID for correct alignment
-        try {
-          const profileRes = await authApi.getProfile();
-          if (profileRes.data.success && profileRes.data.data) {
-            setCurrentDbUserId(profileRes.data.data.id);
-          } else {
-            console.warn('Could not fetch DB profile, alignment might be off');
-            setCurrentDbUserId(user.id);
-          }
-        } catch (e) {
-          console.error('Failed to fetch profile:', e);
-          setCurrentDbUserId(user.id);
         }
       } catch (error) {
         console.error('Failed to load initial messages:', error);

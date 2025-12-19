@@ -79,25 +79,12 @@ export default function MessageInput({ dbUserId }: MessageInputProps) {
     // But we should prevent double submit.
     setSending(true);
 
-    // Optimistic Message Addition
-    if (user) {
-      addMessage({
-        id: tempId,
-        conversation_id: 'global-group',
-        sender_id: dbUserId || user.id, // Use DB user ID if available for correct alignment
-        sender_username: user.username || user.firstName || 'You',
-        receiver_id: 'global-group',
-        content: content,
-        original_content: content,
-        message_type: imageFile ? 'image' : 'text',
-        media_url: imagePreview || undefined, // Use preview as placeholder
-        status: 'sending',
-        is_read: false,
-        read_at: undefined,
-        created_at: new Date().toISOString(),
-        updated_at: new Date().toISOString(),
-      });
-    }
+    // Clear inputs immediately
+    setMessage('');
+    removeImage();
+    if (textareaRef.current) textareaRef.current.style.height = 'auto';
+
+    setSending(true);
 
     try {
       let mediaUrl: string | undefined;
@@ -154,20 +141,6 @@ export default function MessageInput({ dbUserId }: MessageInputProps) {
 
       if (response.data.success) {
         console.log('✅ Message sent successfully');
-
-        // Immediately update the UI with the server response (which has the converted AI text)
-        const serverMessage = response.data.data.message;
-
-        // Patch: If server returns 'Anonymous' but we know the username, use it
-        if (serverMessage.sender_username === 'Anonymous' && user?.username) {
-          serverMessage.sender_username = user.username;
-        }
-
-        // Remove the optimistic temp message to prevent duplicates
-        removeMessage(tempId);
-
-        // Add the real message from server
-        addMessage(serverMessage);
       }
     } catch (error) {
       console.error('Failed to send message:', error);
