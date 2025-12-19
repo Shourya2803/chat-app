@@ -33,8 +33,10 @@ try {
     }
 
     // Initialize Database
-    if (adminApp) {
+    if (adminApp && process.env.FIREBASE_DATABASE_URL) {
         adminDb = admin.database(adminApp);
+    } else if (adminApp) {
+        console.warn('⚠️ FIREBASE_DATABASE_URL is missing. Real-time DB operations will fail.');
     }
 
 } catch (error) {
