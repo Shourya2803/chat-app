@@ -34,46 +34,64 @@ const getFirebaseMessaging = () => {
 
 export const requestForToken = async () => {
     try {
-        const hasSupport = await isSupported().catch(() => false);
-        if (!hasSupport) return null;
+        if (typeof window === 'undefined') return null;
 
-        if (!process.env.NEXT_PUBLIC_FIREBASE_API_KEY || process.env.NEXT_PUBLIC_FIREBASE_API_KEY.includes('your')) {
-            console.log('FCM: Fetching config from backend...');
-            try {
-                const response = await fetch('/api/config/firebase');
-                const result = await response.json();
-                if (result.success && result.data) {
-                    firebaseConfig = { ...firebaseConfig, ...result.data };
-                    console.log('FCM: Config updated from backend');
-                }
-            } catch (e) {
-                console.warn('FCM: Failed to fetch backend config, using defaults');
-            }
+        const hasSupport = await isSupported().catch(() => false);
+        if (!hasSupport) {
+            console.warn('FCM: Messaging is not supported in this browser');
+            return null;
         }
 
         const messaging = getFirebaseMessaging();
-        if (!messaging) return null;
+        if (!messaging) {
+            console.error('FCM: Messaging instance could not be initialized');
+            return null;
+        }
 
+        // Web Push requires permission
+        const permission = await Notification.requestPermission();
+        if (permission !== 'granted') {
+            console.warn('FCM: Notification permission not granted:', permission);
+            return null;
+        }
+
+        const vapidKey = process.env.NEXT_PUBLIC_FIREBASE_VAPID_KEY;
+        if (!vapidKey) {
+            console.error('FCM: NEXT_PUBLIC_FIREBASE_VAPID_KEY is missing in environment variables');
+            return null;
+        }
+
+        console.log('FCM: Requesting token...');
         const currentToken = await getToken(messaging, {
-            vapidKey: process.env.NEXT_PUBLIC_FIREBASE_VAPID_KEY || 'BFu8N-9U4U8V7X7W2R8Q1A' // Fallback VAPID or fetched one
+            vapidKey: vapidKey
         });
 
         if (currentToken) {
-            // Send config to service worker
+            console.log('FCM: Token generated successfully');
+            // Send config to service worker for background handling
             if ('serviceWorker' in navigator) {
                 const regs = await navigator.serviceWorker.getRegistrations();
                 for (let reg of regs) {
-                    reg.active?.postMessage({
-                        type: 'SET_CONFIG',
-                        config: firebaseConfig
-                    });
+                    if (reg.active) {
+                        reg.active.postMessage({
+                            type: 'SET_CONFIG',
+                            config: firebaseConfig
+                        });
+                    }
                 }
             }
             return currentToken;
+        } else {
+            console.warn('FCM: No registration token available. Request permission to generate one.');
+            return null;
         }
-        return null;
-    } catch (err) {
-        console.error('FCM retrieval error:', err);
+    } catch (err: any) {
+        console.error('FCM: Error retrieving token. Specific error:', err);
+        if (err.code === 'messaging/permission-blocked') {
+            console.error('FCM: Please unblock notifications in your browser settings.');
+        } else if (err.message?.includes('vapidKey')) {
+            console.error('FCM: VAPID Key mismatch or invalid format.');
+        }
         return null;
     }
 };

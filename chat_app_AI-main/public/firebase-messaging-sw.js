@@ -7,22 +7,27 @@ let initialized = false;
 self.addEventListener('message', (event) => {
     if (event.data && event.data.type === 'SET_CONFIG') {
         const config = event.data.config;
-        if (!initialized && config.apiKey && config.apiKey !== 'REPLACE_WITH_YOUR_KEY') {
-            firebase.initializeApp(config);
-            const messaging = firebase.messaging();
+        if (!initialized && config && config.apiKey && config.apiKey !== 'REPLACE_WITH_YOUR_KEY') {
+            try {
+                firebase.initializeApp(config);
+                const messaging = firebase.messaging();
 
-            messaging.onBackgroundMessage((payload) => {
-                console.log('[sw] Background message:', payload);
-                const notificationTitle = payload.notification.title;
-                const notificationOptions = {
-                    body: payload.notification.body,
-                    icon: payload.notification.icon || '/icon.png'
-                };
-                self.registration.showNotification(notificationTitle, notificationOptions);
-            });
+                messaging.onBackgroundMessage((payload) => {
+                    console.log('[sw] Background message received:', payload);
+                    const notificationTitle = payload.notification?.title || 'New Message';
+                    const notificationOptions = {
+                        body: payload.notification?.body || 'You have a new message',
+                        icon: payload.notification?.icon || '/icon.png',
+                        data: payload.data
+                    };
+                    self.registration.showNotification(notificationTitle, notificationOptions);
+                });
 
-            initialized = true;
-            console.log('[sw] Firebase initialized dynamically');
+                initialized = true;
+                console.log('[sw] Firebase Messaging initialized dynamically');
+            } catch (error) {
+                console.error('[sw] Firebase initialization failed:', error);
+            }
         }
     }
 });
