@@ -1,35 +1,52 @@
 import { NextRequest, NextResponse } from 'next/server';
-
-const BACKEND_URL = process.env.BACKEND_URL || process.env.NEXT_PUBLIC_API_URL || 'http://localhost:4000';
+import { auth, currentUser } from '@clerk/nextjs';
+import { prisma } from '@/lib/prisma';
 
 export const dynamic = 'force-dynamic';
 
-async function proxy(req: NextRequest) {
-  const backendPath = `${BACKEND_URL}${req.nextUrl.pathname}`;
-
-  const headers: Record<string, string> = {};
-  for (const [key, value] of req.headers) {
-    if (value) headers[key] = value;
-  }
+export async function POST(req: NextRequest) {
   try {
-    const res = await fetch(backendPath, {
-      method: req.method,
-      headers,
-      body: req.method !== 'GET' && req.method !== 'HEAD' ? await req.arrayBuffer() : undefined,
+    const { userId: clerkId } = auth();
+    const user = await currentUser();
+
+    if (!clerkId || !user) {
+      return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+    }
+
+    // Upsert the user into our database
+    const dbUser = await prisma.user.upsert({
+      where: { clerkId },
+      update: {
+        email: user.emailAddresses[0]?.emailAddress || '',
+        username: user.username || `${user.firstName} ${user.lastName}`.trim() || 'Anonymous',
+        avatarUrl: user.imageUrl,
+      },
+      create: {
+        clerkId,
+        email: user.emailAddresses[0]?.emailAddress || '',
+        username: user.username || `${user.firstName} ${user.lastName}`.trim() || 'Anonymous',
+        avatarUrl: user.imageUrl,
+        role: 'USER',
+      },
     });
 
-    const body = await res.arrayBuffer();
-    const responseHeaders = new Headers(res.headers);
-    responseHeaders.delete('transfer-encoding');
+    // Ensure system user exists
+    await prisma.user.upsert({
+      where: { clerkId: 'system-admin' },
+      update: {},
+      create: {
+        clerkId: 'system-admin',
+        email: 'system@internal.chat',
+        username: 'System',
+        role: 'ADMIN',
+      },
+    });
 
-    return new NextResponse(body, { status: res.status, headers: responseHeaders });
-  } catch (err: any) {
-    return NextResponse.json({ error: 'Backend unreachable', details: String(err?.message || err) }, { status: 502 });
+    return NextResponse.json({ success: true, data: dbUser });
+  } catch (error: any) {
+    console.error('❌ Sync error:', error);
+    return NextResponse.json({ error: 'Sync failed', details: error.message }, { status: 500 });
   }
 }
 
-export const GET = proxy;
-export const POST = proxy;
-export const PUT = proxy;
-export const DELETE = proxy;
-export const PATCH = proxy;
+export const GET = POST; // Allow both for flexibility

@@ -20,18 +20,25 @@ export default function ChatLayout() {
 
     const initializeApp = async () => {
       try {
-        // Set active conversation to global-group
+        // 1. Sync user with database
+        console.log('🔄 Syncing user session...');
+        const syncRes = await fetch('/api/auth/sync', { method: 'POST' });
+        if (!syncRes.ok) {
+          throw new Error('Failed to synchronize user session');
+        }
+        console.log('✅ User session synchronized');
+
+        // 2. Set active conversation to global-group
         setActiveConversation('global-group');
 
-        // Initialize FCM for push notifications
+        // 3. Initialize FCM for push notifications
         requestForToken().then(async (fcmToken) => {
           if (fcmToken) {
             console.log('Got FCM token:', fcmToken);
-            // Note: You can add API call here to register token if needed
           }
         });
 
-        // Listen for foreground messages
+        // 4. Listen for foreground messages
         onMessageListener().then((payload: any) => {
           toast.success(`New Message: ${payload?.notification?.title}`);
         });
