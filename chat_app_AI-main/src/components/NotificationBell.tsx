@@ -3,7 +3,6 @@
 import { useEffect, useState, useRef } from 'react';
 import { Bell, X, Check, CheckCheck } from 'lucide-react';
 import { useAuth, useUser } from '@clerk/nextjs';
-import socket from '@/lib/socket';
 import { useApiClient } from '@/lib/api';
 import { formatDistanceToNow } from 'date-fns';
 
@@ -112,50 +111,17 @@ export default function NotificationBell() {
     }
   };
 
-  // Listen for real-time notifications
+  // Poll for notifications
   useEffect(() => {
     if (!user) return;
 
     // Load initial notifications
     fetchNotifications();
 
-    // Ensure socket is connected with a valid Clerk token before listening.
-    // Calling `connect` is idempotent in the SocketService; it will reuse
-    // an existing connection if the token hasn't changed.
-    let attached = false;
-    const setupSocket = async () => {
-      try {
-        const token = await getToken();
-        if (!token) return;
+    // Poll every 60 seconds
+    const interval = setInterval(fetchNotifications, 60000);
 
-        // Connect (or reuse) socket with token
-        const s = socket.connect(token);
-
-        // Attach listener only once
-        if (s) {
-          s.on('new-notification', (notification: Notification) => {
-            setNotifications((prev) => [notification, ...prev]);
-            setUnreadCount((prev) => prev + 1);
-
-            if ('Notification' in window && Notification.permission === 'granted') {
-              new Notification(notification.title, {
-                body: notification.body,
-                icon: '/icon.png',
-              });
-            }
-          });
-          attached = true;
-        }
-      } catch (error) {
-        console.error('Socket setup failed for notifications:', error);
-      }
-    };
-
-    setupSocket();
-
-    return () => {
-      if (attached) socket.off('new-notification');
-    };
+    return () => clearInterval(interval);
   }, [user]);
 
   // Close dropdown when clicking outside

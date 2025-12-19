@@ -1,32 +1,34 @@
 import { NextRequest, NextResponse } from 'next/server';
-
-const BACKEND_URL = process.env.BACKEND_URL || process.env.NEXT_PUBLIC_API_URL || 'http://localhost:4000';
+import { auth } from '@clerk/nextjs';
+import { prisma } from '@/lib/prisma';
 
 export const dynamic = 'force-dynamic';
 
-async function proxy(req: NextRequest) {
-  const backendPath = `${BACKEND_URL}${req.nextUrl.pathname}${req.nextUrl.search}`;
-  const headers: Record<string, string> = {};
-  for (const [k, v] of req.headers) if (v) headers[k] = v;
-
+export async function GET(req: NextRequest) {
   try {
-    const init: RequestInit = { method: req.method, headers };
-    if (req.method !== 'GET' && req.method !== 'HEAD') {
-      const text = await req.text();
-      if (text) init.body = text;
+    const { userId: clerkId } = auth();
+
+    if (!clerkId) {
+      return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
     }
 
-    const res = await fetch(backendPath, init);
-    const body = await res.arrayBuffer();
-    const responseHeaders = new Headers(res.headers);
-    responseHeaders.delete('transfer-encoding');
-    return new NextResponse(body, { status: res.status, headers: responseHeaders });
-  } catch (err: any) {
-    return NextResponse.json({ error: 'Backend unreachable', details: String(err?.message || err) }, { status: 502 });
+    const user = await prisma.user.findUnique({
+      where: { clerkId },
+    });
+
+    if (!user) {
+      return NextResponse.json({ error: 'User not found in database' }, { status: 404 });
+    }
+
+    return NextResponse.json({
+      success: true,
+      data: user,
+    });
+  } catch (error: any) {
+    console.error('Error fetching user profile:', error);
+    return NextResponse.json(
+      { error: 'Internal Server Error', details: error.message },
+      { status: 500 }
+    );
   }
 }
-
-export const GET = proxy;
-export const POST = proxy;
-export const PUT = proxy;
-export const DELETE = proxy;

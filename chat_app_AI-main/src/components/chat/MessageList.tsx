@@ -1,5 +1,7 @@
 'use client';
 
+// (Check imports - lines 3-6 seem sufficient, no new external deps used besides simple HTML)
+// Actually, no new imports needed. loadingMore logic uses basic HTML/CSS.
 import { useEffect, useRef } from 'react';
 import { format, isToday, isYesterday } from 'date-fns';
 import { Check, CheckCheck, Image as ImageIcon, Sparkles } from 'lucide-react';
@@ -9,19 +11,38 @@ interface MessageListProps {
   messages: Message[];
   loading: boolean;
   currentUserId: string;
+  currentUsername?: string | null;
   isAdmin?: boolean;
+  onLoadMore?: () => void;
+  hasMore?: boolean;
+  loadingMore?: boolean;
 }
 
-export default function MessageList({ messages, loading, currentUserId, isAdmin }: MessageListProps) {
-  const messagesEndRef = useRef<HTMLDivElement>(null);
+export default function MessageList({ messages, loading, currentUserId, currentUsername, isAdmin, onLoadMore, hasMore, loadingMore }: MessageListProps) {
+  const scrollRef = useRef<HTMLDivElement>(null);
+  const bottomRef = useRef<HTMLDivElement>(null);
+  const prevMessagesLength = useRef(messages.length);
 
   useEffect(() => {
-    scrollToBottom();
-  }, [messages]);
+    // 1. Loading More (Pagination) - Do NOT auto-scroll, maintain position
+    if (loadingMore) return;
 
-  const scrollToBottom = () => {
-    messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
-  };
+    // 2. New Messages / Initial Load
+    const isNewMessage = messages.length - prevMessagesLength.current === 1;
+    const isBulkLoad = messages.length - prevMessagesLength.current > 1;
+
+    // 3. Execute Scroll
+    if (isBulkLoad || messages.length === 0) {
+      // Force instant scroll to bottom for bulk loads (initial or background fetch)
+      // using scrollIntoView on an anchor element is more reliable than scrollTop calculations
+      bottomRef.current?.scrollIntoView({ behavior: 'auto', block: 'end' });
+    } else if (isNewMessage) {
+      // Smooth scroll for single new messages
+      bottomRef.current?.scrollIntoView({ behavior: 'smooth', block: 'end' });
+    }
+
+    prevMessagesLength.current = messages.length;
+  }, [messages, loadingMore]);
 
   const formatMessageTime = (date: string) => {
     if (!date) return '';
@@ -44,14 +65,24 @@ export default function MessageList({ messages, loading, currentUserId, isAdmin 
 
   if (loading) {
     return (
-      <div className="flex-1 flex items-center justify-center">
-        <div className="animate-spin rounded-full h-12 w-12 border-4 border-primary-500 border-t-transparent" />
+      <div className="flex-1 overflow-y-auto p-4 md:p-6 space-y-6 scrollbar-hide bg-[#f8fafc] dark:bg-[#0f172a]">
+        <div className="max-w-4xl mx-auto space-y-6">
+          {[1, 2, 3, 4].map((i) => (
+            <div key={i} className={`flex items-start gap-3 ${i % 2 === 0 ? 'flex-row' : 'flex-row-reverse'}`}>
+              <div className="w-9 h-9 rounded-xl bg-gray-200 dark:bg-gray-800 animate-pulse" />
+              <div className={`flex flex-col max-w-[70%] ${i % 2 === 0 ? 'items-start' : 'items-end'}`}>
+                <div className="h-3 w-20 bg-gray-200 dark:bg-gray-800 rounded animate-pulse mb-2" />
+                <div className={`h-16 w-48 rounded-2xl bg-gray-200 dark:bg-gray-800 animate-pulse ${i % 2 === 0 ? 'rounded-tl-none' : 'rounded-tr-none'}`} />
+              </div>
+            </div>
+          ))}
+        </div>
       </div>
     );
   }
 
   return (
-    <div className="flex-1 overflow-y-auto p-4 md:p-6 space-y-6 scrollbar-hide bg-[#f8fafc] dark:bg-[#0f172a]">
+    <div ref={scrollRef} className="flex-1 overflow-y-auto p-4 md:p-6 space-y-6 scrollbar-hide bg-[#f8fafc] dark:bg-[#0f172a]">
       {messages.length === 0 ? (
         <div className="flex flex-col items-center justify-center h-full opacity-60">
           <div className="w-16 h-16 rounded-2xl bg-gray-100 dark:bg-gray-800 flex items-center justify-center mb-4">
@@ -63,7 +94,7 @@ export default function MessageList({ messages, loading, currentUserId, isAdmin 
       ) : (
         <div className="max-w-4xl mx-auto space-y-6">
           {messages.map((message, index) => {
-            const isSent = message.sender_id === currentUserId;
+            const isSent = message.sender_id === currentUserId || (currentUsername && message.sender_username === currentUsername);
             const isSystem = message.sender_id === 'system-admin' || message.sender_username === 'System';
             const showAvatar = index === 0 || messages[index - 1].sender_id !== message.sender_id;
 
@@ -80,7 +111,7 @@ export default function MessageList({ messages, loading, currentUserId, isAdmin 
             return (
               <div
                 key={message.id}
-                className={`flex items-start gap-3 group animate-in fade-in slide-in-from-bottom-2 duration-300 ${isSent ? 'flex-row' : 'flex-row-reverse'}`}
+                className={`flex items-start gap-3 group animate-in fade-in slide-in-from-bottom-2 duration-300 ${isSent ? 'flex-row-reverse' : 'flex-row'}`}
               >
                 {showAvatar ? (
                   <div className={`shrink-0 w-9 h-9 rounded-xl flex items-center justify-center text-white text-xs font-black shadow-sm ring-2 ring-white dark:ring-gray-900 ${isSent ? 'bg-primary-600' : 'bg-slate-500'
@@ -91,7 +122,7 @@ export default function MessageList({ messages, loading, currentUserId, isAdmin 
                   <div className="w-9" />
                 )}
 
-                <div className={`flex flex-col max-w-[80%] md:max-w-[70%] ${isSent ? 'items-start' : 'items-end'}`}>
+                <div className={`flex flex-col max-w-[80%] md:max-w-[70%] ${isSent ? 'items-end' : 'items-start'}`}>
                   <span className="text-[11px] font-bold text-gray-500 dark:text-gray-400 mb-1 px-1 flex items-center gap-1.5">
                     {message.sender_username || 'Anonymous User'}
                   </span>
@@ -99,8 +130,8 @@ export default function MessageList({ messages, loading, currentUserId, isAdmin 
                   {/* Message Bubble */}
                   <div
                     className={`relative rounded-2xl px-4 py-2.5 shadow-sm transition-all duration-200 group-hover:shadow-md ${isSent
-                      ? 'bg-primary-600 text-white rounded-tl-none'
-                      : 'bg-white dark:bg-gray-800 text-gray-900 dark:text-gray-100 border border-gray-200/60 dark:border-gray-700/60 rounded-tr-none'
+                      ? 'bg-primary-600 text-white rounded-tr-none'
+                      : 'bg-white dark:bg-gray-800 text-gray-900 dark:text-gray-100 border border-gray-200/60 dark:border-gray-700/60 rounded-tl-none'
                       }`}
                   >
                     {message.message_type === 'image' && message.media_url ? (
@@ -124,7 +155,7 @@ export default function MessageList({ messages, loading, currentUserId, isAdmin 
 
                   </div>
 
-                  <div className={`flex items-center gap-1.5 mt-1.5 px-1 ${isSent ? 'flex-row' : 'flex-row-reverse'}`}>
+                  <div className={`flex items-center gap-1.5 mt-1.5 px-1 ${isSent ? 'flex-row-reverse' : 'flex-row'}`}>
                     <span className="text-[10px] font-bold text-gray-400 dark:text-gray-500 uppercase tracking-tight">
                       {formatMessageTime(message.created_at)}
                     </span>
@@ -145,7 +176,7 @@ export default function MessageList({ messages, loading, currentUserId, isAdmin 
           })}
         </div>
       )}
-      <div ref={messagesEndRef} className="h-4" />
+      <div ref={bottomRef} className="h-px w-full" />
     </div>
   );
 }

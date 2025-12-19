@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { auth } from '@clerk/nextjs';
 import { prisma } from '@/lib/prisma';
+import { redis } from '@/lib/redis';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
@@ -32,7 +33,46 @@ export async function GET(req: NextRequest) {
         const limit = parseInt(searchParams.get('limit') || '100');
         const offset = parseInt(searchParams.get('offset') || '0');
 
-        // Fetch messages from database
+        // Redis Cache Check (Fast Load)
+        // Only checking for initial page (offset 0) to speed up "above the fold" load
+        if (redis && offset === 0) {
+            try {
+                const cacheKey = 'chat:messages:global-group';
+                const cachedMessages = await redis.lrange(cacheKey, 0, 9); // Get top 10
+
+                if (cachedMessages.length > 0) {
+                    console.log('🚀 Redis Cache HIT: Returning 10 fast messages');
+                    const parsedMessages = cachedMessages.map((msgStr) => {
+                        const m = JSON.parse(msgStr);
+                        // Apply visibility rules even to cached messages (sanity check)
+                        // Admin sees original, Sender sees original, others see content
+                        // Note: Redis stores pre-formatted structure, but we re-check ownership for safety if needed.
+                        // For simplicity and speed, we trust the cached structure but re-verify "displayContent" logic if possible.
+                        // Actually, the cache has 'original_content' and 'content'. We need to select right one.
+                        const isSender = m.sender_id === currentUserId;
+                        const displayContent = isAdmin || isSender ? m.original_content || m.content : m.content;
+
+                        return {
+                            ...m,
+                            content: displayContent
+                        };
+                    });
+
+                    // Redis list has Newest at index 0 (LPUSH). We need to reverse to show Oldest -> Newest
+                    return NextResponse.json({
+                        success: true,
+                        data: {
+                            name: 'Corporate General Chat',
+                            messages: parsedMessages.reverse(),
+                        },
+                    });
+                }
+            } catch (redisError) {
+                console.error('⚠️ Redis cache read error (falling back to DB):', redisError);
+            }
+        }
+
+        // Fetch messages from database (Fallback or Load More)
         const messages = await prisma.message.findMany({
             where: {
                 conversationId: 'global-group',

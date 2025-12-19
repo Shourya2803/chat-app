@@ -18,6 +18,7 @@ model User {
   firstName String?  @map("first_name")
   lastName  String?  @map("last_name")
   avatarUrl String?  @map("avatar_url")
+  role      UserRole @default(USER)
   status    String   @default("offline")
   lastSeen  DateTime @default(now()) @map("last_seen")
   createdAt DateTime @default(now()) @map("created_at")
@@ -34,6 +35,11 @@ model User {
   reactions         MessageReaction[]
 
   @@map("users")
+}
+
+enum UserRole {
+  USER
+  ADMIN
 }
 
 model Conversation {

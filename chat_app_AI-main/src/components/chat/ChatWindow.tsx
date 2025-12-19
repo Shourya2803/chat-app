@@ -1,96 +1,182 @@
 'use client';
 
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { useUser, UserButton } from '@clerk/nextjs';
-import { useApiClient } from '@/lib/api';
+import { messageApi, authApi } from '@/lib/api';
 import { useChatStore } from '@/store/chatStore';
-import { useUIStore } from '@/store/uiStore';
-import { socketService } from '@/lib/socket';
 import MessageList from './MessageList';
 import MessageInput from './MessageInput';
-import { Sparkles, Moon, Sun, Edit3, Check, X } from 'lucide-react';
+import { Moon, Sun } from 'lucide-react';
+import { db } from '@/lib/firebaseClient';
+import { ref, onValue, query, orderByKey, limitToLast } from 'firebase/database';
 
 export default function ChatWindow() {
   const { user } = useUser();
-  const api = useApiClient();
-  const { messages, setMessages, typingUsers } = useChatStore();
+  const { messages, addMessage, setMessages, prependMessages } = useChatStore();
   const [loading, setLoading] = useState(false);
+  const [loadingMore, setLoadingMore] = useState(false);
+  const [hasMore, setHasMore] = useState(true);
   const [currentDbUserId, setCurrentDbUserId] = useState<string>('');
   const [isAdmin, setIsAdmin] = useState(false);
   const [groupName, setGroupName] = useState('Corporate General Chat');
-  const [isEditingName, setIsEditingName] = useState(false);
-  const [newName, setNewName] = useState('');
+  const lastMessageTimestamp = useRef<number>(0);
 
-  // Get typing users for active conversation
-  const typingInConversation = typingUsers['global-group'] || [];
-  const isOtherUserTyping = typingInConversation.some(
-    (userId) => userId !== currentDbUserId
-  );
+  const handleLoadMore = async () => {
+    if (loadingMore || !hasMore) return;
+    setLoadingMore(true);
+    try {
+      const currentCount = messages['global-group']?.length || 0;
+      const res = await messageApi.getMessages('global-group', 50, currentCount);
+
+      if (res.data.success && res.data.data.messages.length > 0) {
+        prependMessages('global-group', res.data.data.messages);
+        // If we got less than requested, we reached the end
+        if (res.data.data.messages.length < 50) {
+          setHasMore(false);
+        }
+      } else {
+        setHasMore(false);
+      }
+    } catch (error) {
+      console.error('Failed to load more messages:', error);
+    } finally {
+      setLoadingMore(false);
+    }
+  };
 
   useEffect(() => {
+    if (!user) return;
+
     const init = async () => {
-      if (!user) return;
       setLoading(true);
       try {
-        const [meRes, msgRes] = await Promise.all([
-          api.get('/users/me'),
-          api.get('/messages/conversation/global-group?limit=100&offset=0')
-        ]);
+        // 1. FAST LOAD: Fetch recent messages (Redis cache hits here)
+        // We ask for 20 to ensure we fill the screen even if cache has 10.
+        // If Redis has 10, API might return 10 (cached).
+        const fastRes = await messageApi.getMessages('global-group', 20, 0);
 
-        // Handle User Data
-        setCurrentDbUserId(meRes.data.user.id);
-        const userRole = meRes.data.user.role;
+        if (fastRes.data.success && fastRes.data.data.messages) {
+          const initialMessages = fastRes.data.data.messages;
+          setMessages('global-group', initialMessages);
+
+          if (fastRes.data.data.name) {
+            setGroupName(fastRes.data.data.name);
+          }
+
+          // 2. BACKGROUND LOAD: Fetch deeper history silently
+          // Use the actual length received as offset to ensure no gap
+          const currentCount = initialMessages.length;
+
+          if (currentCount > 0) {
+            // Fetch enough to reach ~100 total (e.g. if we got 10, ask for 90)
+            const remainingLimit = 100 - currentCount;
+            if (remainingLimit > 0) {
+              const historyRes = await messageApi.getMessages('global-group', remainingLimit, currentCount);
+
+              if (historyRes.data.success && historyRes.data.data.messages.length > 0) {
+                const olderMessages = historyRes.data.data.messages;
+                // Using prependMessages to safely add strictly older messages
+                prependMessages('global-group', olderMessages);
+
+                // If background fetch returned full batch, allows loading more
+                if (olderMessages.length < remainingLimit) {
+                  setHasMore(false);
+                }
+              } else {
+                setHasMore(false);
+              }
+            }
+          } else {
+            setHasMore(false);
+          }
+        }
+
+        // Get user info from Clerk
+        const userRole = (user as any).publicMetadata?.role || 'USER';
         setIsAdmin(userRole === 'ADMIN');
 
-        // Handle Messages
-        setMessages('global-group', msgRes.data.data.messages);
-        if (msgRes.data.data.name) {
-          setGroupName(msgRes.data.data.name);
+        // Fetch real DB user ID for correct alignment
+        try {
+          const profileRes = await authApi.getProfile();
+          if (profileRes.data.success && profileRes.data.data) {
+            setCurrentDbUserId(profileRes.data.data.id);
+          } else {
+            console.warn('Could not fetch DB profile, alignment might be off');
+            setCurrentDbUserId(user.id);
+          }
+        } catch (e) {
+          console.error('Failed to fetch profile:', e);
+          setCurrentDbUserId(user.id);
         }
       } catch (error) {
-        console.error('Initialization failed:', error);
+        console.error('Failed to load initial messages:', error);
       } finally {
         setLoading(false);
       }
     };
 
     init();
-    socketService.joinConversation('global-group');
 
-    // "ISR-like" Polling Fallback (Every 10 seconds)
-    // Ensures real-time reliability if Socket.IO drops on Vercel
-    const pollInterval = setInterval(() => {
-      loadMessages();
-    }, 10000);
+    // Setup Firebase Realtime Database listener for instant updates
+    // Only subscribe if db is initialized (i.e. we have config)
+    if (db) {
+      const messagesRef = ref(db, 'messages');
+      const recentMessagesQuery = query(messagesRef, orderByKey(), limitToLast(50));
 
-    return () => {
-      socketService.leaveConversation('global-group');
-      clearInterval(pollInterval);
-    };
-  }, [user, api]);
+      const unsubscribe = onValue(recentMessagesQuery, (snapshot) => {
+        const data = snapshot.val();
+        if (!data) return;
 
-  const loadMessages = async () => {
-    // This can still be used for manual refreshes
-    try {
-      const response = await api.get(
-        `/messages/conversation/global-group?limit=100&offset=0`
-      );
-      setMessages('global-group', response.data.data.messages);
-    } catch (error) {
-      console.error('Failed to load messages:', error);
+        // Process each message
+        Object.entries(data).forEach(([timestamp, firebaseMessage]: [string, any]) => {
+          const messageTimestamp = parseInt(timestamp);
+
+          // Only process new messages (after initial load)
+          if (messageTimestamp <= lastMessageTimestamp.current) {
+            return;
+          }
+
+          lastMessageTimestamp.current = messageTimestamp;
+
+          // Determine what content to show based on user role
+          const isSender = firebaseMessage.sender_id === user.id;
+          const displayContent = firebaseMessage.content;
+
+          const message = {
+            id: firebaseMessage.id,
+            conversation_id: 'global-group',
+            sender_id: firebaseMessage.sender_id,
+            sender_username: firebaseMessage.sender_username,
+            receiver_id: 'global-group',
+            content: displayContent,
+            original_content: firebaseMessage.original_content,
+            message_type: firebaseMessage.media_url ? 'image' : 'text',
+            media_url: firebaseMessage.media_url,
+            status: 'sent',
+            is_read: false,
+            read_at: undefined,
+            created_at: new Date(messageTimestamp).toISOString(),
+            updated_at: new Date(messageTimestamp).toISOString(),
+          };
+
+          // Play sound for messages from others
+          if (!isSender) {
+            try {
+              const audio = new Audio("data:audio/wav;base64,UklGRl9vT19XQVZFZm10IBAAAAABAAEAQB8AAEAfAAABAAgAZGF0YTtvT19vT19vT19vT19vT19vT19vT19vT19vT19vT19vT19vT19vT19vT19vT19vT19vT19vT19vT19vT19vT19vT18=");
+              audio.volume = 0.4;
+              audio.play().catch(() => { });
+            } catch (e) { }
+          }
+
+          addMessage(message);
+        });
+      });
+
+      return () => {
+        unsubscribe();
+      };
     }
-  };
-
-  const handleUpdateName = async () => {
-    if (!newName.trim()) return;
-    try {
-      await api.patch('/messages/conversation/global-group/name', { name: newName });
-      setGroupName(newName);
-      setIsEditingName(false);
-    } catch (error) {
-      console.error('Failed to update group name:', error);
-    }
-  };
+  }, [user, addMessage, setMessages]);
 
   const conversationMessages = messages['global-group'] || [];
 
@@ -108,49 +194,12 @@ export default function ChatWindow() {
             </div>
             <div>
               <div className="flex items-center gap-2">
-                {isEditingName ? (
-                  <div className="flex items-center gap-2">
-                    <input
-                      type="text"
-                      value={newName}
-                      onChange={(e) => setNewName(e.target.value)}
-                      className="bg-gray-100 dark:bg-gray-700 border-none rounded px-2 py-1 text-sm font-bold focus:ring-2 focus:ring-primary-500 outline-none"
-                      autoFocus
-                    />
-                    <button onClick={handleUpdateName} className="text-green-500 hover:text-green-600">
-                      <Check className="w-4 h-4" />
-                    </button>
-                    <button onClick={() => setIsEditingName(false)} className="text-red-500 hover:text-red-600">
-                      <X className="w-4 h-4" />
-                    </button>
-                  </div>
-                ) : (
-                  <div className="flex items-center gap-2">
-                    <h2 className="font-bold text-gray-900 dark:text-gray-100 tracking-tight">
-                      {groupName}
-                    </h2>
-                    {isAdmin && (
-                      <button
-                        onClick={() => {
-                          setNewName(groupName);
-                          setIsEditingName(true);
-                        }}
-                        className="p-1 hover:bg-gray-100 dark:hover:bg-gray-700 rounded transition-colors text-gray-400 hover:text-primary-500"
-                      >
-                        <Edit3 className="w-3.5 h-3.5" />
-                      </button>
-                    )}
-                  </div>
-                )}
+                <h2 className="font-bold text-gray-900 dark:text-gray-100 tracking-tight">
+                  {groupName}
+                </h2>
               </div>
               <p className="text-xs text-gray-500 dark:text-gray-400 font-medium">
-                {isOtherUserTyping ? (
-                  <span className="flex items-center gap-1 text-primary-600 dark:text-primary-400">
-                    <span className="animate-pulse">Someone is typing...</span>
-                  </span>
-                ) : (
-                  'Secured Enterprise Channel'
-                )}
+                Secured Enterprise Channel • Real-time via Firebase
               </p>
             </div>
           </div>
@@ -190,14 +239,18 @@ export default function ChatWindow() {
           messages={conversationMessages}
           loading={loading}
           currentUserId={currentDbUserId}
+          currentUsername={user?.username || user?.firstName || null}
           isAdmin={isAdmin}
+          onLoadMore={handleLoadMore}
+          hasMore={hasMore}
+          loadingMore={loadingMore}
         />
       </main>
 
       {/* Input */}
       <footer className="p-4 bg-white dark:bg-gray-800 border-t border-gray-200 dark:border-gray-700 shadow-[0_-4px_6px_-1px_rgba(0,0,0,0.05)]">
         <div className="max-w-7xl mx-auto">
-          <MessageInput />
+          <MessageInput dbUserId={currentDbUserId} />
         </div>
       </footer>
     </div>

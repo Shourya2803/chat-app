@@ -29,10 +29,10 @@ const SYSTEM_RULES = `
 You are an AI assistant embedded inside an internal company messaging system.
 
 STRICT RULES:
+- Rewrite the message to be strictly professional, corporate, and formal
+- Remove casual slang, abbreviations, and informalities
+- If the message is already professional, enhance its vocabulary to be more sophisticated
 - Remove insults, profanity, harassment, and aggressive language
-- Replace them with factual, respectful phrasing
-- Preserve original intent
-- Do NOT invent facts, deadlines, or commitments
 - Output ONLY the rewritten message text
 - Never explain or reference the transformation
 - Respond in the same language as the input
@@ -60,25 +60,45 @@ export class AIService {
                 auto: "Automatically choose the most appropriate professional tone based on context.",
             };
 
+            // ✅ CORRECT MODELS (Confirmed via API list)
+            // The user's key only has access to these specific newer/experimental models
             const modelsToTry = [
-                "gemini-2.0-flash-exp",
-                "gemini-1.5-flash",
-                "gemini-1.5-pro"
+                "gemini-flash-latest",
+                "gemini-2.0-flash",
+                "gemini-pro-latest"
             ];
+
             let lastError = "";
 
             for (const modelName of modelsToTry) {
                 try {
                     const model = genAI.getGenerativeModel({ model: modelName });
 
-                    const result = await model.generateContent(
-                        `${SYSTEM_RULES}\n\n${toneInstruction[tone]}\n\nRewrite the following message to be more professional but maintain approximately the same length:\n\n${text}`
-                    );
+                    console.log(`🤖 AI: Trying model: ${modelName}`);
 
-                    const convertedText = result.response.text()?.trim();
+                    // ✅ FIXED: Proper content array format
+                    const result = await model.generateContent({
+                        contents: [{
+                            role: "user",
+                            parts: [{
+                                text: `${SYSTEM_RULES}
+
+${toneInstruction[tone]}
+
+ORIGINAL MESSAGE:
+${text}`
+                            }]
+                        }]
+                    });
+
+                    // ✅ FIXED: Correct response extraction
+                    const responseText = result.response.text();
+                    const convertedText = responseText?.trim();
+
+                    console.log(`📝 AI Response raw: "${responseText?.substring(0, 100)}..."`);
 
                     if (convertedText && convertedText.length > 0) {
-                        console.log(`✅ AI: Tone conversion successful with [${modelName}]`);
+                        console.log(`✅ AI: SUCCESS with [${modelName}] → "${convertedText}"`);
                         return {
                             success: true,
                             convertedText,
@@ -88,7 +108,7 @@ export class AIService {
                     }
                 } catch (err: any) {
                     lastError = err.message || "Unknown error";
-                    console.warn(`⚠️ AI: Model [${modelName}] failed: ${lastError}`);
+                    console.warn(`⚠️ AI: [${modelName}] FAILED: ${lastError}`);
 
                     if (lastError.includes("429") || lastError.includes("401") || lastError.includes("403")) {
                         throw err;
@@ -96,19 +116,21 @@ export class AIService {
                 }
             }
 
+            console.error(`❌ All models failed. Last error: ${lastError}`);
             return {
                 success: false,
                 originalText: text,
                 tone,
-                error: `All models failed. Last error: ${lastError}`,
+                error: `All models failed: ${lastError}`,
             };
+
         } catch (error: any) {
-            console.error("❌ Tone conversion failed:", error.message);
+            console.error("❌ CRITICAL AI failure:", error);
             return {
                 success: false,
                 originalText: text,
                 tone,
-                error: error.message,
+                error: error.message || "Unknown error",
             };
         }
     }

@@ -54,8 +54,10 @@ interface ChatState {
   updateConversation: (conversationId: string, updates: Partial<Conversation>) => void;
 
   setMessages: (conversationId: string, messages: Message[]) => void;
+  prependMessages: (conversationId: string, messages: Message[]) => void;
   addMessage: (message: Message) => void;
   updateMessage: (messageId: string, updates: Partial<Message>) => void;
+  removeMessage: (messageId: string) => void;
 
   setActiveConversation: (conversationId: string | null) => void;
 
@@ -99,6 +101,14 @@ export const useChatStore = create<ChatState>((set, get) => ({
       },
     })),
 
+  prependMessages: (conversationId, newMessages) =>
+    set((state) => ({
+      messages: {
+        ...state.messages,
+        [conversationId]: [...newMessages, ...(state.messages[conversationId] || [])],
+      },
+    })),
+
   addMessage: (message) =>
     set((state) => {
       const conversationMessages = state.messages[message.conversation_id] || [];
@@ -121,6 +131,15 @@ export const useChatStore = create<ChatState>((set, get) => ({
         newMessages[convId] = newMessages[convId].map((msg) =>
           msg.id === messageId ? { ...msg, ...updates } : msg
         );
+      });
+      return { messages: newMessages };
+    }),
+
+  removeMessage: (messageId) =>
+    set((state) => {
+      const newMessages = { ...state.messages };
+      Object.keys(newMessages).forEach((convId) => {
+        newMessages[convId] = newMessages[convId].filter((msg) => msg.id !== messageId);
       });
       return { messages: newMessages };
     }),

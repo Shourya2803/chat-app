@@ -12,11 +12,14 @@ let firebaseConfig = {
     messagingSenderId: process.env.NEXT_PUBLIC_FIREBASE_MESSAGING_SENDER_ID,
     appId: process.env.NEXT_PUBLIC_FIREBASE_APP_ID,
     measurementId: process.env.NEXT_PUBLIC_FIREBASE_MEASUREMENT_ID,
-    databaseURL: process.env.NEXT_PUBLIC_FIREBASE_DATABASE_URL,
+    // Use environment variable or valid fallback structure (if env is missing, it will be undefined)
+    databaseURL: process.env.NEXT_PUBLIC_FIREBASE_DATABASE_URL || process.env.FIREBASE_DATABASE_URL,
 };
 
-const app = getApps().length === 0 ? initializeApp(firebaseConfig) : getApp();
-export const db = getDatabase(app);
+// Only initialize if we have at least an API key to avoid empty config errors
+const app = (firebaseConfig.apiKey && getApps().length === 0) ? initializeApp(firebaseConfig) : (getApps().length > 0 ? getApp() : undefined);
+export const db = app ? getDatabase(app) : undefined;
+if (!app) console.warn('⚠️ Firebase Client not initialized (missing config)');
 
 const getFirebaseMessaging = () => {
     try {
@@ -34,11 +37,10 @@ export const requestForToken = async () => {
         const hasSupport = await isSupported().catch(() => false);
         if (!hasSupport) return null;
 
-        // Try to fetch config from backend if local ones are missing or placeholders
         if (!process.env.NEXT_PUBLIC_FIREBASE_API_KEY || process.env.NEXT_PUBLIC_FIREBASE_API_KEY.includes('your')) {
             console.log('FCM: Fetching config from backend...');
             try {
-                const response = await fetch(`${process.env.NEXT_PUBLIC_API_URL || 'http://localhost:4000'}/api/config/firebase`);
+                const response = await fetch('/api/config/firebase');
                 const result = await response.json();
                 if (result.success && result.data) {
                     firebaseConfig = { ...firebaseConfig, ...result.data };
