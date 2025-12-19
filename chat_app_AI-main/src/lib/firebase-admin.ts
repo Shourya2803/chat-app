@@ -37,7 +37,9 @@ try {
     if (adminApp && dbUrl) {
         adminDb = admin.database(adminApp);
     } else if (adminApp) {
-        console.warn('⚠️ Firebase Database URL is missing (tried FIREBASE_DATABASE_URL and NEXT_PUBLIC_FIREBASE_DATABASE_URL). Real-time DB operations will fail.');
+        // Debugging to help user find the missing variable
+        const availableKeys = Object.keys(process.env).filter(k => k.includes('FIREBASE'));
+        console.warn('⚠️ Firebase Database URL is missing. Available Firebase keys in process.env:', availableKeys);
     }
 
 } catch (error) {
