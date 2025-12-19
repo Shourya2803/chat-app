@@ -64,7 +64,7 @@ export default function MessageInput({ dbUserId }: MessageInputProps) {
     if ((!message.trim() && !imageFile) || sending) return;
 
     // Optimistic UI setup
-    const content = message.trim() || 'Image';
+    const content = message.trim() || '';
     const tempId = `temp_${Date.now()}`;
     const prevMessage = message;
 

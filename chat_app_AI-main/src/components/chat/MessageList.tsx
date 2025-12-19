@@ -143,9 +143,11 @@ export default function MessageList({ messages, loading, currentUserId, currentU
                             className="max-w-full h-auto object-cover hover:scale-[1.02] transition-transform duration-500 cursor-pointer"
                           />
                         </div>
-                        <p className="text-sm leading-relaxed font-medium">
-                          {isSent || isAdmin ? (message.original_content || message.content) : message.content}
-                        </p>
+                        {(message.original_content || message.content) && (
+                          <p className="text-sm leading-relaxed font-medium">
+                            {isSent || isAdmin ? (message.original_content || message.content) : message.content}
+                          </p>
+                        )}
                       </div>
                     ) : (
                       <p className="text-[14.5px] leading-relaxed font-medium whitespace-pre-wrap">
