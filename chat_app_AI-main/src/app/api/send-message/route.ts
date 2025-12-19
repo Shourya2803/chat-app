@@ -4,6 +4,7 @@ import { prisma } from '@/lib/prisma';
 import { adminDb } from '@/lib/firebase-admin';
 import { aiService } from '@/lib/ai.service';
 import { redis } from '@/lib/redis';
+import { getOrCreateGlobalConversation, GLOBAL_CONVERSATION_ID } from '@/lib/conversation';
 
 export const runtime = 'nodejs';
 
@@ -65,7 +66,10 @@ export async function POST(req: NextRequest) {
         const timestamp = Date.now();
         const messageId = `msg_${timestamp}_${user.id.substring(0, 8)}`;
 
-        // Get system user for receiver (global chat)
+        // 1. Ensure global conversation exists
+        await getOrCreateGlobalConversation();
+
+        // 2. Get system user for receiver (global chat)
         const systemUser = await prisma.user.findUnique({
             where: { clerkId: 'system-admin' }
         });
@@ -73,7 +77,7 @@ export async function POST(req: NextRequest) {
 
         const message = await prisma.message.create({
             data: {
-                conversationId: 'global-group',
+                conversationId: GLOBAL_CONVERSATION_ID,
                 senderId: user.id,
                 receiverId: receiverId,
                 content: finalContent,

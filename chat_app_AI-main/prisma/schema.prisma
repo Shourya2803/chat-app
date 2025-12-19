@@ -44,18 +44,19 @@ enum UserRole {
 
 model Conversation {
   id            String   @id @default(uuid())
-  user1Id       String   @map("user1_id")
-  user2Id       String   @map("user2_id")
+  type          String   @default("DIRECT")
+  name          String?  
+  user1Id       String?  @map("user1_id")
+  user2Id       String?  @map("user2_id")
   lastMessageAt DateTime @default(now()) @map("last_message_at")
   createdAt     DateTime @default(now()) @map("created_at")
   updatedAt     DateTime @updatedAt @map("updated_at")
 
   // Relations
-  user1    User      @relation("User1Conversations", fields: [user1Id], references: [id], onDelete: Cascade)
-  user2    User      @relation("User2Conversations", fields: [user2Id], references: [id], onDelete: Cascade)
+  user1    User?     @relation("User1Conversations", fields: [user1Id], references: [id], onDelete: Cascade)
+  user2    User?     @relation("User2Conversations", fields: [user2Id], references: [id], onDelete: Cascade)
   messages Message[]
 
-  @@unique([user1Id, user2Id], name: "unique_conversation")
   @@map("conversations")
 }
 

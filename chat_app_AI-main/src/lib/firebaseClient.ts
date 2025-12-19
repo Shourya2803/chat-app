@@ -62,27 +62,34 @@ export const requestForToken = async () => {
         }
 
         console.log('FCM: Requesting token...');
+
+        // 1. Wait for Service Worker to be ready
+        let registration;
+        if ('serviceWorker' in navigator) {
+            console.log('FCM: Waiting for Service Worker ready...');
+            registration = await navigator.serviceWorker.ready;
+
+            // 2. Send config to SW
+            if (registration.active) {
+                registration.active.postMessage({
+                    type: 'SET_CONFIG',
+                    config: firebaseConfig
+                });
+                console.log('FCM: Sent config to active SW');
+            }
+        }
+
+        // 3. Get token with explicit registration
         const currentToken = await getToken(messaging, {
-            vapidKey: vapidKey
+            vapidKey: vapidKey,
+            serviceWorkerRegistration: registration
         });
 
         if (currentToken) {
             console.log('FCM: Token generated successfully');
-            // Send config to service worker for background handling
-            if ('serviceWorker' in navigator) {
-                const regs = await navigator.serviceWorker.getRegistrations();
-                for (let reg of regs) {
-                    if (reg.active) {
-                        reg.active.postMessage({
-                            type: 'SET_CONFIG',
-                            config: firebaseConfig
-                        });
-                    }
-                }
-            }
             return currentToken;
         } else {
-            console.warn('FCM: No registration token available. Request permission to generate one.');
+            console.warn('FCM: No registration token available.');
             return null;
         }
     } catch (err: any) {
@@ -91,6 +98,8 @@ export const requestForToken = async () => {
             console.error('FCM: Please unblock notifications in your browser settings.');
         } else if (err.message?.includes('vapidKey')) {
             console.error('FCM: VAPID Key mismatch or invalid format.');
+        } else if (err.name === 'AbortError') {
+            console.error('FCM: Registration aborted. This often means the service worker is not initialized yet or VAPID key is wrong.');
         }
         return null;
     }

@@ -7,7 +7,7 @@ let initialized = false;
 self.addEventListener('message', (event) => {
     if (event.data && event.data.type === 'SET_CONFIG') {
         const config = event.data.config;
-        if (!initialized && config && config.apiKey && config.apiKey !== 'REPLACE_WITH_YOUR_KEY') {
+        if (!initialized && config && config.apiKey) {
             try {
                 firebase.initializeApp(config);
                 const messaging = firebase.messaging();
@@ -18,7 +18,7 @@ self.addEventListener('message', (event) => {
                     const notificationOptions = {
                         body: payload.notification?.body || 'You have a new message',
                         icon: payload.notification?.icon || '/icon.png',
-                        data: payload.data
+                        data: payload.data,
                     };
                     self.registration.showNotification(notificationTitle, notificationOptions);
                 });
@@ -31,21 +31,3 @@ self.addEventListener('message', (event) => {
         }
     }
 });
-
-// Fallback initialization (if values were manually replaced)
-try {
-    firebase.initializeApp({
-        apiKey: "REPLACE_WITH_YOUR_KEY",
-        authDomain: "REPLACE_WITH_YOUR_PROJECT.firebaseapp.com",
-        projectId: "REPLACE_WITH_YOUR_PROJECT_ID",
-        storageBucket: "REPLACE_WITH_YOUR_PROJECT.appspot.com",
-        messagingSenderId: "REPLACE_WITH_YOUR_SENDER_ID",
-        appId: "REPLACE_WITH_YOUR_APP_ID",
-    });
-    const messaging = firebase.messaging();
-    messaging.onBackgroundMessage((payload) => {
-        // ... fallback handler
-    });
-} catch (e) {
-    // Expected if placeholders not replaced
-}
