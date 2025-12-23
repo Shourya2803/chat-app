@@ -230,22 +230,14 @@ The application is designed to be hosted on **Vercel** with a managed **PostgreS
 
 ---
 
-## 📸 Screenshots / Demo
-> [!NOTE]
-> Add Your App Screenshots Or Demo GIF Here!
-
----
 
 ## 📅 Roadmap
 - [ ] Group chat creation UI.
-- [ ] Message reactions (backend schema ready).
 - [ ] Voice message support.
 - [ ] Read receipts visualization across all devices.
 
 ---
 
-## 🧾 License
-This project is licensed under the **MIT License**. See the [LICENSE](LICENSE) file for details.
 
----
+
 *Built with ❤️ by [Shourya](https://github.com/Shourya2803)*
