@@ -31,35 +31,41 @@ export async function POST(req: NextRequest) {
         const body = await req.json();
         const { content, mediaUrl } = body;
 
-        if (!content || !content.trim()) {
+        // Validation: Content is required UNLESS there is a mediaUrl (image send)
+        if ((!content || !content.trim()) && !mediaUrl) {
             return NextResponse.json({ error: 'Content is required' }, { status: 400 });
         }
 
         // Apply AI tone conversion (always professional)
-        let finalContent = content;
-        let originalContent = content;
+        let finalContent = content || '';
+        let originalContent = content || '';
         const appliedTone = 'professional';
 
-        console.log('🤖 Applying professional tone conversion');
+        // Only apply AI if there is actual content to convert
+        if (content && content.trim()) {
+            console.log('🤖 Applying professional tone conversion');
 
-        try {
-            const timeoutPromise = new Promise((_, reject) =>
-                setTimeout(() => reject(new Error('Gemini API timeout after 30s')), 30000)
-            );
+            try {
+                const timeoutPromise = new Promise((_, reject) =>
+                    setTimeout(() => reject(new Error('Gemini API timeout after 30s')), 30000)
+                );
 
-            const result = await Promise.race([
-                aiService.convertTone(content, 'professional'),
-                timeoutPromise
-            ]) as any;
+                const result = await Promise.race([
+                    aiService.convertTone(content, 'professional'),
+                    timeoutPromise
+                ]) as any;
 
-            if (result.success && result.convertedText) {
-                finalContent = result.convertedText;
-                console.log('✅ Tone conversion successful');
-            } else {
-                console.warn(`⚠️ Tone conversion failed: ${result.error || 'Empty response'}`);
+                if (result.success && result.convertedText) {
+                    finalContent = result.convertedText;
+                    console.log('✅ Tone conversion successful');
+                } else {
+                    console.warn(`⚠️ Tone conversion failed: ${result.error || 'Empty response'}`);
+                }
+            } catch (error: any) {
+                console.error(`❌ Tone conversion error: ${error.message}`);
             }
-        } catch (error: any) {
-            console.error(`❌ Tone conversion error: ${error.message}`);
+        } else {
+            console.log('ℹ️ Skipping AI conversion for empty content (image only)');
         }
 
         // Save to Prisma database
