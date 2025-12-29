@@ -5,14 +5,14 @@ import { useUser, UserButton } from '@clerk/nextjs';
 import { useChatStore } from '@/store/chatStore';
 import MessageList from './MessageList';
 import MessageInput from './MessageInput';
-import { Moon, Sun, Menu, MessageSquare, Users } from 'lucide-react';
+import { Moon, Sun, Menu, MessageSquare, Users, ArrowLeft } from 'lucide-react';
 import { firestore, db as rtdb } from '@/lib/firebaseClient';
 import { collection, query, orderBy, limit, onSnapshot, doc, getDoc } from 'firebase/firestore';
 import { ref, onValue } from 'firebase/database';
 
 export default function ChatWindow() {
   const { user } = useUser();
-  const { messages, setMessages, activeConversationId } = useChatStore();
+  const { messages, setMessages, activeConversationId, setActiveConversation } = useChatStore();
   const [loading, setLoading] = useState(false);
   const [chatInfo, setChatInfo] = useState<any>(null);
   const [allUsers, setAllUsers] = useState<any[]>([]);
@@ -127,7 +127,7 @@ export default function ChatWindow() {
 
   if (!activeConversationId) {
     return (
-      <div className="flex-1 flex flex-col items-center justify-center bg-gray-50 dark:bg-gray-950 text-gray-500">
+      <div className="hidden md:flex flex-1 flex flex-col items-center justify-center bg-gray-50 dark:bg-gray-950 text-gray-500">
         <div className="p-6 rounded-full bg-gray-100 dark:bg-gray-800 mb-4 animate-bounce">
           <MessageSquare className="w-12 h-12 text-primary-500" />
         </div>
@@ -163,10 +163,16 @@ export default function ChatWindow() {
   };
 
   return (
-    <div className="flex-1 flex flex-col bg-gray-50 dark:bg-gray-900 h-screen overflow-hidden">
+    <div className={`flex-1 flex flex-col bg-gray-50 dark:bg-gray-900 h-screen overflow-hidden ${!activeConversationId ? 'hidden md:flex' : 'flex'}`}>
       <header className="bg-white dark:bg-gray-800 border-b border-gray-200 dark:border-gray-700 p-4 shadow-sm z-10">
         <div className="flex items-center justify-between">
-          <div className="flex items-center gap-3">
+          <div className="flex items-center gap-2 md:gap-3">
+            <button
+              onClick={() => setActiveConversation(null)}
+              className="md:hidden p-2 -ml-2 rounded-full hover:bg-gray-100 dark:hover:bg-gray-700 text-gray-600 dark:text-gray-400"
+            >
+              <ArrowLeft className="w-6 h-6" />
+            </button>
             <div className="relative">
               <div className="w-10 h-10 rounded-full bg-gradient-to-br from-primary-500 to-primary-700 flex items-center justify-center text-white font-bold shadow-lg uppercase">
                 {getChatName()[0]}

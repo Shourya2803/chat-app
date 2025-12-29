@@ -100,7 +100,7 @@ export default function Sidebar() {
   };
 
   return (
-    <div className="w-80 border-r border-gray-200 dark:border-gray-800 flex flex-col bg-white dark:bg-gray-900">
+    <div className={`w-full md:w-80 border-r border-gray-200 dark:border-gray-800 flex flex-col bg-white dark:bg-gray-900 ${activeConversationId ? 'hidden md:flex' : 'flex'}`}>
       <div className="p-4 border-b border-gray-200 dark:border-gray-800 flex justify-between items-center bg-gray-50 dark:bg-gray-800/50">
         <h1 className="font-bold text-lg dark:text-gray-100">Messages</h1>
         <div className="flex gap-2">
