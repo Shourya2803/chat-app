@@ -5,10 +5,11 @@ import { useUser, UserButton } from '@clerk/nextjs';
 import { useChatStore } from '@/store/chatStore';
 import MessageList from './MessageList';
 import MessageInput from './MessageInput';
-import { Moon, Sun, Menu, MessageSquare, Users, ArrowLeft } from 'lucide-react';
+import { Moon, Sun, Menu, MessageSquare, Users, ArrowLeft, Settings2 } from 'lucide-react';
 import { firestore, db as rtdb } from '@/lib/firebaseClient';
 import { collection, query, orderBy, limit, onSnapshot, doc, getDoc } from 'firebase/firestore';
 import { ref, onValue } from 'firebase/database';
+import GroupSettingsModal from './GroupSettingsModal';
 
 export default function ChatWindow() {
   const { user } = useUser();
@@ -18,6 +19,7 @@ export default function ChatWindow() {
   const [allUsers, setAllUsers] = useState<any[]>([]);
   const [currentDbUserId, setCurrentDbUserId] = useState<string>('');
   const [isAdmin, setIsAdmin] = useState(false);
+  const [isSettingsOpen, setIsSettingsOpen] = useState(false);
 
   useEffect(() => {
     if (!user) return;
@@ -202,6 +204,16 @@ export default function ChatWindow() {
               <Moon className="w-5 h-5 block dark:hidden" />
             </button>
 
+            {isGroup && isAdmin && (
+              <button
+                onClick={() => setIsSettingsOpen(true)}
+                className="p-2 rounded-xl hover:bg-gray-100 dark:hover:bg-gray-700 text-gray-500 dark:text-gray-400 transition-all"
+                title="Group Settings"
+              >
+                <Settings2 className="w-5 h-5" />
+              </button>
+            )}
+
             <div className="border-l border-gray-200 dark:border-gray-700 pl-4 h-8 flex items-center">
               <UserButton afterSignOutUrl="/sign-in" />
             </div>
@@ -239,6 +251,25 @@ export default function ChatWindow() {
           hasMore={false}
           loadingMore={false}
         />
+
+        {isSettingsOpen && activeConversationId && (
+          <GroupSettingsModal
+            chatId={activeConversationId}
+            currentName={getChatName()}
+            onCloseAction={() => {
+              setIsSettingsOpen(false);
+              // Refresh chat info to reflect name change if needed
+              const fetchChatInfo = async () => {
+                if (!firestore) return;
+                const chatDoc = await getDoc(doc(firestore, 'chats', activeConversationId));
+                if (chatDoc.exists()) {
+                  setChatInfo(chatDoc.data());
+                }
+              };
+              fetchChatInfo();
+            }}
+          />
+        )}
       </main>
 
       <footer className="p-4 bg-white dark:bg-gray-800 border-t border-gray-200 dark:border-gray-700 shadow-lg">

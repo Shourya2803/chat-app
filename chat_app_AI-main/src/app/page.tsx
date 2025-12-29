@@ -18,7 +18,7 @@ export default function Page() {
             Chat Platform
           </h1>
           <p className="text-slate-400">
-            Secure internal communication
+            Internal communication
           </p>
         </div>
 
