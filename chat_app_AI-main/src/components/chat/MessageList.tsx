@@ -134,6 +134,8 @@ export default function MessageList({ messages, loading, currentUserId, currentU
                       : 'bg-white dark:bg-gray-800 text-gray-900 dark:text-gray-100 border border-gray-200/60 dark:border-gray-700/60 rounded-tl-none'
                       }`}
                   >
+
+
                     {message.message_type === 'image' && message.media_url ? (
                       <div className="space-y-3">
                         <div className="relative overflow-hidden rounded-lg group/img">
@@ -145,16 +147,15 @@ export default function MessageList({ messages, loading, currentUserId, currentU
                         </div>
                         {(message.original_content || message.content) && (
                           <p className="text-sm leading-relaxed font-medium">
-                            {isSent || isAdmin ? (message.original_content || message.content) : message.content}
+                            {message.content}
                           </p>
                         )}
                       </div>
                     ) : (
                       <p className="text-[14.5px] leading-relaxed font-medium whitespace-pre-wrap">
-                        {isSent || isAdmin ? (message.original_content || message.content) : message.content}
+                        {message.content}
                       </p>
                     )}
-
                   </div>
 
                   <div className={`flex items-center gap-1.5 mt-1.5 px-1 ${isSent ? 'flex-row-reverse' : 'flex-row'}`}>

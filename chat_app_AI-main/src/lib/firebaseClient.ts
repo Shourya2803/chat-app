@@ -3,6 +3,7 @@
 import { initializeApp, getApps, getApp } from 'firebase/app';
 import { getMessaging, getToken, isSupported, onMessage } from 'firebase/messaging';
 import { getDatabase } from 'firebase/database';
+import { initializeFirestore } from 'firebase/firestore';
 
 let firebaseConfig = {
     apiKey: process.env.NEXT_PUBLIC_FIREBASE_API_KEY,
@@ -12,13 +13,18 @@ let firebaseConfig = {
     messagingSenderId: process.env.NEXT_PUBLIC_FIREBASE_MESSAGING_SENDER_ID,
     appId: process.env.NEXT_PUBLIC_FIREBASE_APP_ID,
     measurementId: process.env.NEXT_PUBLIC_FIREBASE_MEASUREMENT_ID,
-    // Use environment variable or valid fallback structure (if env is missing, it will be undefined)
     databaseURL: process.env.NEXT_PUBLIC_FIREBASE_DATABASE_URL || process.env.FIREBASE_DATABASE_URL,
 };
 
 // Only initialize if we have at least an API key to avoid empty config errors
 const app = (firebaseConfig.apiKey && getApps().length === 0) ? initializeApp(firebaseConfig) : (getApps().length > 0 ? getApp() : undefined);
 export const db = app ? getDatabase(app) : undefined;
+
+// Use initializeFirestore with long-polling to bypass common adblocker rules
+export const firestore = app ? initializeFirestore(app, {
+    experimentalForceLongPolling: true,
+}) : undefined;
+
 if (!app) console.warn('⚠️ Firebase Client not initialized (missing config)');
 
 const getFirebaseMessaging = () => {
@@ -51,7 +57,10 @@ export const requestForToken = async () => {
         // Web Push requires permission
         const permission = await Notification.requestPermission();
         if (permission !== 'granted') {
-            console.warn('FCM: Notification permission not granted:', permission);
+            // Log this only if it's not already 'denied' to avoid spamming the console
+            if (permission === 'default') {
+                console.info('FCM: Notification permission requested but not granted.');
+            }
             return null;
         }
 

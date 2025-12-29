@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { auth } from '@clerk/nextjs';
 import { cloudinary } from '@/lib/cloudinary';
-import { prisma } from '@/lib/prisma';
+import { getAdminFirestore } from '@/lib/firebase-admin';
 
 export const runtime = 'nodejs';
 
@@ -19,30 +19,12 @@ export async function POST(req: NextRequest) {
         const apiKey = process.env.CLOUDINARY_API_KEY;
         const apiSecret = process.env.CLOUDINARY_API_SECRET;
 
-        console.log('📂 [UPLOAD] Env Check:', {
-            hasCloudName: !!cloudName,
-            isCloudNameEmpty: cloudName === '',
-            hasApiKey: !!apiKey,
-            isApiKeyEmpty: apiKey === '',
-            hasApiSecret: !!apiSecret,
-            isApiSecretEmpty: apiSecret === '',
-        });
-
         if (!cloudName || !apiKey || !apiSecret) {
-            console.error('📂 [UPLOAD] Missing or empty Cloudinary environment variables');
-            return NextResponse.json({
-                error: 'Cloudinary configuration missing or incomplete',
-                details: 'Please ensure CLOUDINARY_CLOUD_NAME, CLOUDINARY_API_KEY, and CLOUDINARY_API_SECRET are set to NON-EMPTY values in your .env file.',
-                missing: {
-                    cloudName: !cloudName,
-                    apiKey: !apiKey,
-                    apiSecret: !apiSecret
-                }
-            }, { status: 500 });
+            console.error('📂 [UPLOAD] Missing Cloudinary environment variables');
+            return NextResponse.json({ error: 'Cloudinary configuration missing' }, { status: 500 });
         }
 
         const formData = await req.formData();
-        console.log('📂 [UPLOAD] FormData keys:', Array.from(formData.keys()));
         const file = formData.get('image') as File;
 
         if (!file) {
@@ -54,56 +36,45 @@ export async function POST(req: NextRequest) {
         const buffer = Buffer.from(bytes);
 
         console.log('📂 [UPLOAD] Uploading to Cloudinary...');
-        // Upload to Cloudinary
         const result: any = await new Promise((resolve, reject) => {
             const uploadStream = cloudinary.uploader.upload_stream(
                 {
-                    folder: 'chat_app', // Consistent folder
+                    folder: 'chat_app',
                     resource_type: 'auto',
                 },
                 (error, result) => {
-                    if (error) {
-                        console.error('📂 [UPLOAD] Cloudinary error:', error);
-                        reject(error);
-                    } else {
-                        console.log('📂 [UPLOAD] Cloudinary success');
-                        resolve(result);
-                    }
+                    if (error) reject(error);
+                    else resolve(result);
                 }
             );
             uploadStream.end(buffer);
         });
 
-        console.log('📂 [UPLOAD] Saving to Media table...');
+        console.log('📂 [UPLOAD] Saving to Firestore (Migrated from Prisma)...');
         try {
-            const mediaObject = (prisma as any).media;
-            if (!mediaObject) {
-                console.warn('📂 [UPLOAD] prisma.media not found on client - falling back');
-                throw new Error('prisma.media not initialized');
-            }
-            const mediaRecord = await mediaObject.create({
-                data: {
-                    url: result.secure_url,
-                    publicId: result.public_id,
-                    type: result.resource_type,
-                    size: result.bytes,
-                }
+            const db = await getAdminFirestore();
+            const mediaRef = await db.collection('media').add({
+                url: result.secure_url,
+                publicId: result.public_id,
+                type: result.resource_type,
+                size: result.bytes,
+                uploaderId: userId,
+                createdAt: new Date().toISOString(),
             });
-            console.log('📂 [UPLOAD] Media record created:', mediaRecord.id);
+            console.log('📂 [UPLOAD] Media record created in Firestore:', mediaRef.id);
 
             return NextResponse.json({
                 success: true,
                 data: {
                     url: result.secure_url,
-                    mediaId: mediaRecord.id,
+                    mediaId: mediaRef.id,
                     width: result.width,
                     height: result.height,
                     format: result.format
                 },
             });
         } catch (dbError: any) {
-            console.error('📂 [UPLOAD] DB error saving media:', dbError);
-            // Even if DB save fails, we return the URL so the chat can continue
+            console.error('📂 [UPLOAD] Firestore error saving media:', dbError);
             return NextResponse.json({
                 success: true,
                 data: {

@@ -1,183 +1,110 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { auth } from '@clerk/nextjs';
-import { prisma } from '@/lib/prisma';
-import { adminDb } from '@/lib/firebase-admin';
+import { auth, currentUser } from '@clerk/nextjs';
+import { getAdminFirestore, getAdminDb } from '@/lib/firebase-admin';
 import { aiService } from '@/lib/ai.service';
-import { redis } from '@/lib/redis';
-import { getOrCreateGlobalConversation, GLOBAL_CONVERSATION_ID } from '@/lib/conversation';
+import { DocumentData } from 'firebase-admin/firestore';
 
-export const runtime = 'nodejs';
+export const dynamic = 'force-dynamic';
 
 export async function POST(req: NextRequest) {
     try {
-        // Authenticate with Clerk
         const { userId: clerkId } = auth();
+        const user = await currentUser();
 
-        if (!clerkId) {
+        if (!clerkId || !user) {
             return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
         }
 
-        // Get the user from database
-        const user = await prisma.user.findUnique({
-            where: { clerkId },
-            select: { id: true, username: true, role: true },
-        });
+        const { chatId, content, mediaUrl, tone = 'professional' } = await req.json();
 
-        if (!user) {
-            return NextResponse.json({ error: 'User not found' }, { status: 404 });
+        if (!chatId || (!content && !mediaUrl)) {
+            return NextResponse.json({ error: 'Missing required fields' }, { status: 400 });
         }
 
-        // Parse request body
-        const body = await req.json();
-        const { content, mediaUrl } = body;
+        // 1. Get Sender Info from Firestore (Migrated from Prisma)
+        const db = await getAdminFirestore();
+        const userRef = db.collection('users').doc(clerkId);
+        const userDoc = await userRef.get();
+        const userData = userDoc.data() as DocumentData | undefined; // Cast to DocumentData
 
-        // Validation: Content is required UNLESS there is a mediaUrl (image send)
-        if ((!content || !content.trim()) && !mediaUrl) {
-            return NextResponse.json({ error: 'Content is required' }, { status: 400 });
+        if (!userData) {
+            return NextResponse.json({ error: 'User profile not found in Firestore' }, { status: 404 });
         }
 
-        // Apply AI tone conversion (always professional)
+        const rtdb = await getAdminDb();
+
+        // 1. Validate Chat Membership
+        const chatDoc = await db.collection('chats').doc(chatId).get();
+        if (!chatDoc.exists) return NextResponse.json({ error: 'Chat not found' }, { status: 404 });
+
+        const chatData = chatDoc.data() || {};
+        // 1. Validate Chat Membership (Bypass for Admins)
+        const isMember = chatData.members?.includes(clerkId);
+        const isAdmin = userData?.role === 'ADMIN';
+
+        if (!isMember && !isAdmin) {
+            return NextResponse.json({ error: 'Not a member of this chat' }, { status: 403 });
+        }
+
+        // 2. Load Admin Settings for AI
+        const adminSettingsDoc = await db.collection('admin_settings').doc('ai_rules').get();
+        const systemPrompt = adminSettingsDoc.exists ? adminSettingsDoc.data()?.systemPrompt : undefined;
+
+        const keyExists = !!(process.env.GEMINI_API_KEY || process.env.NEXT_PUBLIC_GEMINI_API_KEY);
+        console.log(`🤖 AI: Secure Tone Conversion started... [Key: ${keyExists ? 'Active' : 'Missing'}] [Prompt: ${systemPrompt ? 'Custom' : 'Default'}]`);
+
+        // 3. Process with AI (Enforce Professional as Default)
         let finalContent = content || '';
-        let originalContent = content || '';
-        const appliedTone = 'professional';
-
-        // Only apply AI if there is actual content to convert
         if (content && content.trim()) {
-            console.log('🤖 Applying professional tone conversion');
-
-            try {
-                const timeoutPromise = new Promise((_, reject) =>
-                    setTimeout(() => reject(new Error('Gemini API timeout after 30s')), 30000)
-                );
-
-                const result = await Promise.race([
-                    aiService.convertTone(content, 'professional'),
-                    timeoutPromise
-                ]) as any;
-
-                if (result.success && result.convertedText) {
-                    finalContent = result.convertedText;
-                    console.log('✅ Tone conversion successful');
-                } else {
-                    console.warn(`⚠️ Tone conversion failed: ${result.error || 'Empty response'}`);
-                }
-            } catch (error: any) {
-                console.error(`❌ Tone conversion error: ${error.message}`);
+            console.log(`🤖 AI: Converting "${content.slice(0, 30)}..."`);
+            const result = await aiService.convertTone(content, 'professional', systemPrompt);
+            if (result.success && result.convertedText) {
+                finalContent = result.convertedText;
+                console.log(`✅ AI: Transcription Complete: "${finalContent}"`);
+            } else {
+                console.warn(`⚠️ AI: Conversion failed or blocked. Using original as fallback. Error: ${result.error}`);
             }
-        } else {
-            console.log('ℹ️ Skipping AI conversion for empty content (image only)');
         }
 
-        // Save to Prisma database
-        const timestamp = Date.now();
-        const messageId = `msg_${timestamp}_${user.id.substring(0, 8)}`;
+        // 4. Save Message to Firestore (Permanent Archive)
+        const messageRef = db.collection('messages').doc(chatId).collection('messages').doc();
+        const messageData = {
+            id: messageRef.id,
+            senderId: clerkId,
+            senderUsername: user.username || 'Anonymous',
+            originalText: content || '',
+            aiText: finalContent,
+            mediaUrl: mediaUrl || null,
+            createdAt: new Date().toISOString(), // Use ISO string for consistency
+        };
+        await messageRef.set(messageData);
 
-        // 1. Ensure global conversation exists
-        await getOrCreateGlobalConversation();
+        // 5. Dual-Write to Realtime Database (Sub-second Sync)
+        try {
+            await rtdb.ref(`messages/${chatId}/${messageRef.id}`).set(messageData);
+            console.log(`⚡ RTDB: Message synced successfully to /messages/${chatId}`);
+        } catch (rtdbErr) {
+            console.error('❌ RTDB write failed:', rtdbErr);
+            // Don't fail the whole request if only RTDB fails, but we should know.
+        }
 
-        // 2. Get system user for receiver (global chat)
-        const systemUser = await prisma.user.findUnique({
-            where: { clerkId: 'system-admin' }
-        });
-        const receiverId = systemUser?.id || user.id;
-
-        const message = await prisma.message.create({
-            data: {
-                conversationId: GLOBAL_CONVERSATION_ID,
-                senderId: user.id,
-                receiverId: receiverId,
-                content: finalContent,
-                originalContent: originalContent,
-                toneApplied: appliedTone,
-                mediaUrl: mediaUrl || null,
-            },
+        // 6. Update Chat Last Message
+        await db.collection('chats').doc(chatId).update({
+            lastMessage: finalContent || (mediaUrl ? 'Sent an image' : ''),
+            lastOriginalMessage: content || finalContent || (mediaUrl ? 'Sent an image' : ''),
+            lastMessageAt: new Date(),
         });
 
-        // Save to Firebase Realtime Database for instant sync
-        // Fail gracefully if Firebase is not configured (don't block the API)
-        if (adminDb) {
-            try {
-                const firebaseMessage = {
-                    id: message.id,
-                    sender_id: user.id,
-                    sender_username: user.username || 'Anonymous',
-                    content: finalContent,
-                    original_content: originalContent,
-                    timestamp: timestamp,
-                    is_admin_message: (user as any).role === 'ADMIN',
-                    media_url: mediaUrl || null,
-                };
-
-                await adminDb.ref(`messages/${timestamp}`).set(firebaseMessage);
-                console.log(`✅ Message saved to Firebase: ${message.id}`);
-            } catch (fbError) {
-                console.error('⚠️ Failed to save to Firebase (message saved to DB only):', fbError);
-            }
-        } else {
-            console.warn('⚠️ Firebase Admin not initialized - skipping real-time sync');
-        }
-
-        console.log(`✅ Message saved to Prisma: ${message.id}`);
-
-        // Redis Caching (as requested: keep last 10 messages)
-        if (redis) {
-            try {
-                const cacheKey = 'chat:messages:global-group';
-
-                // Construct message object matching the frontend structure
-                const redisMessage = JSON.stringify({
-                    id: message.id,
-                    conversation_id: message.conversationId,
-                    sender_id: message.senderId,
-                    sender_username: user.username || 'Anonymous', // Add username for display
-                    receiver_id: message.receiverId,
-                    content: message.content,
-                    original_content: message.originalContent,
-                    tone_applied: message.toneApplied,
-                    message_type: mediaUrl ? 'image' : 'text',
-                    media_url: message.mediaUrl,
-                    status: 'sent',
-                    is_read: false,
-                    created_at: message.createdAt,
-                    updated_at: message.updatedAt,
-                });
-
-                // Push to head of list
-                await redis.lpush(cacheKey, redisMessage);
-
-                // Trim to keep only the newest 10 items (0 to 9)
-                await redis.ltrim(cacheKey, 0, 9);
-                console.log('✅ Message cached in Redis (Top 10)');
-            } catch (redisError) {
-                console.error('⚠️ Redis cache error:', redisError);
-            }
-        }
+        return NextResponse.json({ success: true, data: { message: messageData } });
+    } catch (error: any) {
+        const errorMessage = error instanceof Error ? error.message : 'Unknown error';
+        const errorStack = error instanceof Error ? error.stack : undefined;
+        console.error('❌ CRITICAL: Send message error:', errorMessage, errorStack);
 
         return NextResponse.json({
-            success: true,
-            data: {
-                message: {
-                    id: message.id,
-                    conversation_id: message.conversationId,
-                    sender_id: message.senderId,
-                    receiver_id: message.receiverId,
-                    content: message.content,
-                    original_content: message.originalContent,
-                    tone_applied: message.toneApplied,
-                    message_type: mediaUrl ? 'image' : 'text',
-                    media_url: message.mediaUrl,
-                    status: 'sent',
-                    is_read: false,
-                    created_at: message.createdAt,
-                    updated_at: message.updatedAt,
-                },
-            },
-        });
-    } catch (error: any) {
-        console.error('❌ Send message error:', error);
-        return NextResponse.json(
-            { error: 'Failed to send message', details: error.message },
-            { status: 500 }
-        );
+            error: errorMessage,
+            details: errorStack, // Helpful for debugging
+            code: 'INTERNAL_SERVER_ERROR'
+        }, { status: 500 });
     }
 }

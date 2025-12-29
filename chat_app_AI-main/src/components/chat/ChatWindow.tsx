@@ -2,254 +2,241 @@
 
 import { useState, useEffect, useRef } from 'react';
 import { useUser, UserButton } from '@clerk/nextjs';
-import { messageApi, authApi } from '@/lib/api';
 import { useChatStore } from '@/store/chatStore';
 import MessageList from './MessageList';
 import MessageInput from './MessageInput';
-import { Moon, Sun } from 'lucide-react';
-import { db } from '@/lib/firebaseClient';
-import { ref, onValue, query, orderByKey, limitToLast } from 'firebase/database';
+import { Moon, Sun, Menu, MessageSquare, Users } from 'lucide-react';
+import { firestore, db as rtdb } from '@/lib/firebaseClient';
+import { collection, query, orderBy, limit, onSnapshot, doc, getDoc } from 'firebase/firestore';
+import { ref, onValue } from 'firebase/database';
 
 export default function ChatWindow() {
   const { user } = useUser();
-  const { messages, addMessage, setMessages, prependMessages } = useChatStore();
+  const { messages, setMessages, activeConversationId } = useChatStore();
   const [loading, setLoading] = useState(false);
-  const [loadingMore, setLoadingMore] = useState(false);
-  const [hasMore, setHasMore] = useState(true);
+  const [chatInfo, setChatInfo] = useState<any>(null);
+  const [allUsers, setAllUsers] = useState<any[]>([]);
   const [currentDbUserId, setCurrentDbUserId] = useState<string>('');
   const [isAdmin, setIsAdmin] = useState(false);
-  const [groupName, setGroupName] = useState('Corporate General Chat');
-  const lastMessageTimestamp = useRef<number>(0);
-
-  const handleLoadMore = async () => {
-    if (loadingMore || !hasMore) return;
-    setLoadingMore(true);
-    try {
-      const currentCount = messages['global-group']?.length || 0;
-      const res = await messageApi.getMessages('global-group', 50, currentCount);
-
-      if (res.data.success && res.data.data.messages.length > 0) {
-        prependMessages('global-group', res.data.data.messages);
-        // If we got less than requested, we reached the end
-        if (res.data.data.messages.length < 50) {
-          setHasMore(false);
-        }
-      } else {
-        setHasMore(false);
-      }
-    } catch (error) {
-      console.error('Failed to load more messages:', error);
-    } finally {
-      setLoadingMore(false);
-    }
-  };
 
   useEffect(() => {
     if (!user) return;
 
-    const init = async () => {
-      setLoading(true);
+    const syncUser = async () => {
       try {
-        // 1. Ensure user is synced and get DB profile
-        console.log('🔄 Syncing user profile...');
-        try {
-          // First try to get profile
-          let profileRes;
-          try {
-            profileRes = await authApi.getProfile();
-          } catch (e: any) {
-            console.log('🔄 Profile not found, attempting sync...');
-            await authApi.syncUser();
-            profileRes = await authApi.getProfile();
-          }
-
-          if (profileRes.data.success && profileRes.data.data) {
-            setCurrentDbUserId(profileRes.data.data.id);
-            const userRole = profileRes.data.data.role || 'USER';
-            setIsAdmin(userRole === 'ADMIN');
-            console.log('✅ User sync complete');
-          } else {
-            console.warn('Could not fetch DB profile after sync');
-            setCurrentDbUserId(user.id);
-          }
-        } catch (e) {
-          console.error('❌ Failed to sync/fetch profile:', e);
-          setCurrentDbUserId(user.id);
+        const res = await fetch('/api/users/me');
+        const data = await res.json();
+        if (data.success) {
+          setCurrentDbUserId(data.data.id);
+          setIsAdmin(data.data.role === 'ADMIN');
         }
 
-        // 2. FAST LOAD: Fetch recent messages (Redis cache hits here)
-        console.log('📨 Fetching initial messages...');
-        const fastRes = await messageApi.getMessages('global-group', 20, 0);
-
-        if (fastRes.data.success && fastRes.data.data.messages) {
-          const initialMessages = fastRes.data.data.messages;
-          setMessages('global-group', initialMessages);
-
-          if (fastRes.data.data.name) {
-            setGroupName(fastRes.data.data.name);
-          }
-
-          // 3. BACKGROUND LOAD: Fetch deeper history silently
-          const currentCount = initialMessages.length;
-          if (currentCount > 0) {
-            const remainingLimit = 100 - currentCount;
-            if (remainingLimit > 0) {
-              const historyRes = await messageApi.getMessages('global-group', remainingLimit, currentCount);
-              if (historyRes.data.success && historyRes.data.data.messages.length > 0) {
-                prependMessages('global-group', historyRes.data.data.messages);
-                if (historyRes.data.data.messages.length < remainingLimit) {
-                  setHasMore(false);
-                }
-              } else {
-                setHasMore(false);
-              }
-            }
-          } else {
-            setHasMore(false);
-          }
+        const usersRes = await fetch('/api/users');
+        const usersData = await usersRes.json();
+        if (usersData.success) {
+          setAllUsers(usersData.data);
         }
-      } catch (error) {
-        console.error('Failed to load initial messages:', error);
-      } finally {
-        setLoading(false);
+      } catch (e) {
+        setCurrentDbUserId(user.id);
       }
     };
+    syncUser();
+  }, [user]);
 
-    init();
+  useEffect(() => {
+    if (!activeConversationId || !rtdb) return;
 
-    // Setup Firebase Realtime Database listener for instant updates
-    // Only subscribe if db is initialized (i.e. we have config)
-    if (db) {
-      const messagesRef = ref(db, 'messages');
-      const recentMessagesQuery = query(messagesRef, orderByKey(), limitToLast(50));
+    setLoading(true);
 
-      const unsubscribe = onValue(recentMessagesQuery, (snapshot) => {
-        const data = snapshot.val();
-        if (!data) return;
+    const fetchChatInfo = async () => {
+      if (!firestore) return;
+      const chatDoc = await getDoc(doc(firestore, 'chats', activeConversationId));
+      if (chatDoc.exists()) {
+        setChatInfo(chatDoc.data());
+      }
+    };
+    fetchChatInfo();
 
-        // Process each message
-        Object.entries(data).forEach(([timestamp, firebaseMessage]: [string, any]) => {
-          const messageTimestamp = parseInt(timestamp);
+    // ⚡ REALTIME DATABASE: Instant Sub-second Sync
+    const messagesRef = ref(rtdb, `messages/${activeConversationId}`);
 
-          // Only process new messages (after initial load)
-          if (messageTimestamp <= lastMessageTimestamp.current) {
-            return;
-          }
+    const unsubscribe = onValue(messagesRef, (snapshot) => {
+      const data = snapshot.val();
+      if (!data) {
+        setMessages(activeConversationId, []);
+        setLoading(false);
+        return;
+      }
 
-          lastMessageTimestamp.current = messageTimestamp;
+      // Convert RTDB Object to Sorted Array
+      const newMessages = Object.entries(data).map(([id, msg]: [string, any]) => {
+        const isSender = msg.senderId === user?.id;
 
-          // Determine what content to show based on user role
-          const isSender = firebaseMessage.sender_id === user.id;
-          const displayContent = firebaseMessage.content;
+        // Sender/Admin see original content
+        // Others ONLY see aiText (The professional secured version)
+        const displayContent = (isAdmin || isSender)
+          ? (msg.originalText || msg.aiText)
+          : (msg.aiText || msg.originalText);
 
-          const message = {
-            id: firebaseMessage.id,
-            conversation_id: 'global-group',
-            sender_id: firebaseMessage.sender_id,
-            sender_username: firebaseMessage.sender_username,
-            receiver_id: 'global-group',
-            content: displayContent,
-            original_content: firebaseMessage.original_content,
-            message_type: firebaseMessage.media_url ? 'image' : 'text',
-            media_url: firebaseMessage.media_url,
-            status: 'sent',
-            is_read: false,
-            read_at: undefined,
-            created_at: new Date(messageTimestamp).toISOString(),
-            updated_at: new Date(messageTimestamp).toISOString(),
-          };
+        return {
+          id: id,
+          conversation_id: activeConversationId,
+          sender_id: msg.senderId,
+          sender_username: msg.senderUsername,
+          receiver_id: activeConversationId,
+          content: displayContent,
+          original_content: msg.originalText || '',
+          ai_content: msg.aiText || '',
+          message_type: msg.mediaUrl ? 'image' : 'text',
+          media_url: msg.mediaUrl,
+          status: 'sent',
+          is_read: true,
+          created_at: msg.createdAt || new Date().toISOString(),
+          updated_at: msg.createdAt || new Date().toISOString(),
+        };
+      }).sort((a: any, b: any) => new Date(a.created_at).getTime() - new Date(b.created_at).getTime());
 
-          // Play sound for messages from others
-          if (!isSender) {
-            try {
-              const audio = new Audio("data:audio/wav;base64,UklGRl9vT19XQVZFZm10IBAAAAABAAEAQB8AAEAfAAABAAgAZGF0YTtvT19vT19vT19vT19vT19vT19vT19vT19vT19vT19vT19vT19vT19vT19vT19vT19vT19vT19vT19vT19vT19vT18=");
-              audio.volume = 0.4;
-              audio.play().catch(() => { });
-            } catch (e) { }
-          }
+      setMessages(activeConversationId, newMessages);
+      setLoading(false);
 
-          addMessage(message);
-        });
+      // Verification log for testing
+      if (newMessages.length > 0) {
+        const lastMsg = newMessages[newMessages.length - 1];
+        console.log(`💬 Message Sync: Last message original: "${lastMsg.original_content}" | Secured: "${lastMsg.ai_content}"`);
+      }
+    }, (error) => {
+      console.error('⚠️ Realtime Sync Failed:', error);
+      setLoading(false);
+    });
+
+    return () => unsubscribe();
+  }, [activeConversationId, user?.id, isAdmin]);
+
+  const conversationMessages = activeConversationId ? (messages[activeConversationId] || []) : [];
+
+  const getChatName = () => {
+    if (!chatInfo) return 'Loading...';
+    if (chatInfo.type === 'group') return chatInfo.name || 'Group Chat';
+
+    const otherMemberId = chatInfo.members?.find((id: string) => id !== user?.id);
+    if (!otherMemberId) return 'Direct Chat';
+
+    const otherUser = allUsers.find(u => u.clerkId === otherMemberId || u.id === otherMemberId);
+    return otherUser ? (otherUser.username || otherUser.firstName || 'User') : 'Direct Chat';
+  };
+
+  if (!activeConversationId) {
+    return (
+      <div className="flex-1 flex flex-col items-center justify-center bg-gray-50 dark:bg-gray-950 text-gray-500">
+        <div className="p-6 rounded-full bg-gray-100 dark:bg-gray-800 mb-4 animate-bounce">
+          <MessageSquare className="w-12 h-12 text-primary-500" />
+        </div>
+        <h2 className="text-xl font-bold text-gray-900 dark:text-gray-100 mb-2">Select a conversation</h2>
+        <p className="max-w-xs text-center">Choose a chat from the sidebar or create a new group to start messaging.</p>
+      </div>
+    );
+  }
+
+  const isMember = chatInfo?.members?.includes(user?.id);
+  const isGroup = chatInfo?.type === 'group';
+
+  const handleJoin = async () => {
+    try {
+      setLoading(true);
+      const res = await fetch('/api/chats/join-group', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ chatId: activeConversationId }),
       });
-
-      return () => {
-        unsubscribe();
-      };
+      const data = await res.json();
+      if (data.success) {
+        setChatInfo(data.data);
+        // Snapshot will auto-refresh messages if it's listening
+      } else {
+        throw new Error(data.error);
+      }
+    } catch (err: any) {
+      console.error("Join failed:", err);
+    } finally {
+      setLoading(false);
     }
-  }, [user, addMessage, setMessages]);
-
-  const conversationMessages = messages['global-group'] || [];
+  };
 
   return (
     <div className="flex-1 flex flex-col bg-gray-50 dark:bg-gray-900 h-screen overflow-hidden">
-      {/* Header */}
       <header className="bg-white dark:bg-gray-800 border-b border-gray-200 dark:border-gray-700 p-4 shadow-sm z-10">
-        <div className="max-w-7xl mx-auto flex items-center justify-between">
+        <div className="flex items-center justify-between">
           <div className="flex items-center gap-3">
             <div className="relative">
-              <div className="w-10 h-10 rounded-full bg-gradient-to-br from-primary-500 to-primary-700 flex items-center justify-center text-white font-bold shadow-lg">
-                CG
+              <div className="w-10 h-10 rounded-full bg-gradient-to-br from-primary-500 to-primary-700 flex items-center justify-center text-white font-bold shadow-lg uppercase">
+                {getChatName()[0]}
               </div>
               <div className="absolute bottom-0 right-0 w-3.5 h-3.5 rounded-full border-2 border-white dark:border-gray-800 bg-green-500 shadow-sm" />
             </div>
             <div>
-              <div className="flex items-center gap-2">
-                <h2 className="font-bold text-gray-900 dark:text-gray-100 tracking-tight">
-                  {groupName}
-                </h2>
-              </div>
-              <p className="text-xs text-gray-500 dark:text-gray-400 font-medium">
-                Secured Enterprise Channel • Real-time via Firebase
+              <h2 className="font-bold text-gray-900 dark:text-gray-100 tracking-tight">
+                {getChatName()}
+              </h2>
+              <p className="text-[10px] text-gray-500 dark:text-gray-400 font-bold uppercase tracking-widest flex items-center gap-1.5">
+                <span className="w-1.5 h-1.5 rounded-full bg-primary-500 animate-pulse" />
+                {isGroup ? `Group • ${chatInfo?.members?.length || 0}` : 'Direct Channel'}
               </p>
             </div>
           </div>
 
           <div className="flex items-center gap-4">
-            {/* Theme Toggle */}
             <button
               onClick={() => {
                 const isDark = document.documentElement.classList.toggle('dark');
                 localStorage.theme = isDark ? 'dark' : 'light';
               }}
-              className="p-2 rounded-full hover:bg-gray-100 dark:hover:bg-gray-700 text-gray-500 dark:text-gray-400 transition-colors"
-              title="Toggle Theme"
+              className="p-2 rounded-xl hover:bg-gray-100 dark:hover:bg-gray-700 text-gray-500 dark:text-gray-400 transition-all"
             >
               <Sun className="w-5 h-5 hidden dark:block" />
               <Moon className="w-5 h-5 block dark:hidden" />
             </button>
 
-            {/* Profile & Logout */}
             <div className="border-l border-gray-200 dark:border-gray-700 pl-4 h-8 flex items-center">
-              <UserButton
-                afterSignOutUrl="/sign-in"
-                appearance={{
-                  elements: {
-                    userButtonAvatarBox: 'w-8 h-8 border-2 border-primary-500/20 hover:border-primary-500/40 transition-all'
-                  }
-                }}
-              />
+              <UserButton afterSignOutUrl="/sign-in" />
             </div>
           </div>
         </div>
       </header>
 
-      {/* Messages */}
       <main className="flex-1 overflow-hidden flex flex-col relative">
+        {isGroup && !isMember && !isAdmin ? (
+          <div className="absolute inset-0 bg-white/60 dark:bg-gray-900/60 backdrop-blur-sm z-20 flex flex-col items-center justify-center p-6 text-center">
+            <div className="p-5 rounded-3xl bg-blue-100 dark:bg-blue-900/30 text-blue-600 dark:text-blue-400 mb-6 shadow-inner">
+              <Users className="w-12 h-12" />
+            </div>
+            <h3 className="text-2xl font-bold text-gray-900 dark:text-gray-100 mb-2 tracking-tight">Join {getChatName()}</h3>
+            <p className="text-gray-500 dark:text-gray-400 max-w-sm mb-8 leading-relaxed font-medium">
+              You aren't a member of this global group yet. Join now to participate in the conversation.
+            </p>
+            <button
+              onClick={handleJoin}
+              disabled={loading}
+              className="px-12 py-4 bg-primary-600 hover:bg-primary-700 text-white font-bold rounded-2xl transition-all shadow-xl shadow-primary-500/20 active:scale-95 disabled:opacity-50 flex items-center gap-2"
+            >
+              {loading ? 'Joining group...' : 'Join Global Group'}
+            </button>
+          </div>
+        ) : null}
+
         <MessageList
           messages={conversationMessages}
           loading={loading}
-          currentUserId={currentDbUserId}
+          currentUserId={user?.id || ''}
           currentUsername={user?.username || user?.firstName || null}
           isAdmin={isAdmin}
-          onLoadMore={handleLoadMore}
-          hasMore={hasMore}
-          loadingMore={loadingMore}
+          onLoadMore={() => { }}
+          hasMore={false}
+          loadingMore={false}
         />
       </main>
 
-      {/* Input */}
-      <footer className="p-4 bg-white dark:bg-gray-800 border-t border-gray-200 dark:border-gray-700 shadow-[0_-4px_6px_-1px_rgba(0,0,0,0.05)]">
-        <div className="max-w-7xl mx-auto">
+      <footer className="p-4 bg-white dark:bg-gray-800 border-t border-gray-200 dark:border-gray-700 shadow-lg">
+        <div className="max-w-5xl mx-auto">
           <MessageInput dbUserId={currentDbUserId} />
         </div>
       </footer>

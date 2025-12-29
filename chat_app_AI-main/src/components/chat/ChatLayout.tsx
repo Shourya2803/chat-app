@@ -5,57 +5,59 @@ import { useUser } from '@clerk/nextjs';
 import { useChatStore } from '@/store/chatStore';
 import { requestForToken, onMessageListener } from '@/lib/firebaseClient';
 import ChatWindow from './ChatWindow';
-
-const toast = {
-  success: (msg: string) => console.log('✓', msg),
-  error: (msg: string) => console.error('✗', msg),
-};
+import Sidebar from './Sidebar';
+import { Toaster, toast } from 'sonner';
 
 export default function ChatLayout() {
   const { user } = useUser();
-  const { setActiveConversation } = useChatStore();
 
   useEffect(() => {
     if (!user) return;
 
     const initializeApp = async () => {
       try {
-        // 1. Sync user with database
         console.log('🔄 Syncing user session...');
-        const syncRes = await fetch('/api/auth/sync', { method: 'POST' });
-        if (!syncRes.ok) {
-          throw new Error('Failed to synchronize user session');
-        }
-        console.log('✅ User session synchronized');
+        const syncRes = await fetch('/api/auth/sync', { method: 'POST' }).catch(err => {
+          if (err.message === 'Failed to fetch') {
+            throw new Error('ADBLOCKED');
+          }
+          throw err;
+        });
 
-        // 2. Set active conversation to global-group
-        setActiveConversation('global-group');
+        if (!syncRes.ok) throw new Error('Failed to synchronize user session');
 
-        // 3. Initialize FCM for push notifications
         requestForToken().then(async (fcmToken) => {
-          if (fcmToken) {
-            console.log('Got FCM token:', fcmToken);
+          if (fcmToken) console.log('Got FCM token:', fcmToken);
+        }).catch(err => {
+          if (err.message?.includes('blocked')) {
+            console.warn('FCM blocked by client');
           }
         });
 
-        // 4. Listen for foreground messages
         onMessageListener().then((payload: any) => {
           toast.success(`New Message: ${payload?.notification?.title}`);
-        });
+        }).catch(() => { });
 
-        toast.success('Connected to chat - Real-time via Firebase');
       } catch (error: any) {
-        console.error('Failed to initialize app:', error);
-        toast.error(error?.message || 'Failed to initialize chat');
+        if (error.message === 'ADBLOCKED') {
+          toast.error('Connection Blocked', {
+            description: 'Your adblocker may be interfering with the chat. Please disable it for this site.',
+            duration: 10000,
+          });
+        } else {
+          console.error('Failed to initialize app:', error);
+          toast.error(error?.message || 'Failed to initialize chat');
+        }
       }
     };
 
     initializeApp();
-  }, [user, setActiveConversation]);
+  }, [user]);
 
   return (
-    <div className="flex h-screen overflow-hidden bg-gray-50 dark:bg-gray-950">
-      <div className="flex-1 flex flex-col max-w-4xl mx-auto bg-white dark:bg-gray-900 shadow-2xl">
+    <div className="flex h-screen overflow-hidden bg-gray-50 dark:bg-gray-950 font-sans">
+      <div className="flex w-full h-full bg-white dark:bg-gray-900 shadow-2xl overflow-hidden">
+        <Sidebar />
         <ChatWindow />
       </div>
     </div>

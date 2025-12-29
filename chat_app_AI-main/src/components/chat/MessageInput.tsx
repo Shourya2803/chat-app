@@ -7,10 +7,7 @@ import { useApiClient } from '@/lib/api';
 import { Send, Image as ImageIcon, X } from 'lucide-react';
 import { useChatStore } from '@/store/chatStore';
 
-const toast = {
-  error: (msg: string) => console.error('Error:', msg),
-  success: (msg: string) => console.log('Success:', msg),
-};
+import { toast } from 'sonner';
 
 interface MessageInputProps {
   dbUserId?: string;
@@ -26,7 +23,7 @@ export default function MessageInput({ dbUserId }: MessageInputProps) {
   const [sending, setSending] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
-  const { addMessage, removeMessage } = useChatStore();
+  const { addMessage, removeMessage, activeConversationId } = useChatStore();
 
   const handleImageSelect = (e: ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
@@ -60,24 +57,14 @@ export default function MessageInput({ dbUserId }: MessageInputProps) {
     }
   };
 
+
   const handleSend = async () => {
-    if ((!message.trim() && !imageFile) || sending) return;
+    if ((!message.trim() && !imageFile) || sending || !activeConversationId) return;
 
     // Optimistic UI setup
     const content = message.trim() || '';
     const tempId = `temp_${Date.now()}`;
     const prevMessage = message;
-
-    // Clear inputs immediately
-    setMessage('');
-    removeImage();
-    if (textareaRef.current) textareaRef.current.style.height = 'auto';
-
-    // Don't set sending=true to block UI, just track it internally if needed
-    // or set it but don't disable input/button effectively? 
-    // User wants "no loading". So we won't disable the button visibly or show spinner.
-    // But we should prevent double submit.
-    setSending(true);
 
     // Clear inputs immediately
     setMessage('');
@@ -97,17 +84,12 @@ export default function MessageInput({ dbUserId }: MessageInputProps) {
           formData.append('image', imageFile);
 
           const response = await api.post('/upload/image', formData, {
-            headers: {
-              'Content-Type': 'multipart/form-data',
-            },
+            headers: { 'Content-Type': 'multipart/form-data' },
           });
 
           mediaUrl = response.data.data.url;
-          toast.success('Image uploaded');
         } catch (error) {
           console.error('Failed to upload image:', error);
-          toast.error('Failed to upload image');
-          // Restore message on failure
           setMessage(prevMessage);
           return;
         } finally {
@@ -115,36 +97,21 @@ export default function MessageInput({ dbUserId }: MessageInputProps) {
         }
       }
 
-      // Optimistic update - add to store immediately
-      // Note: We need the current user ID for this. Since we can't easily get it inside this function 
-      // without passing it as props or using a hook context in a way that might not be available here,
-      // we'll rely on the API response to be fast. 
-      // OR better: The user will see their message appear when the API returns success, 
-      // but we'll show a "sending..." state in the UI if needed.
-      // 
-      // HOWEVER, the user explicitly asked "dont want to see the loading".
-      // So we will optimistically add it to the chat store.
-
-      const { addMessage } = useChatStore.getState();
-      // We need these values to be accurate. 
-      // It's better to fetch user from the hook in the component body and use it here.
-
       // API Call
       const apiPayload = {
+        chatId: activeConversationId,
         content: content,
         mediaUrl: mediaUrl,
       };
 
-      console.log('📤 Sending message via API:', apiPayload);
-
+      console.log('📤 Sending message to API:', apiPayload);
       const response = await api.post(`/send-message`, apiPayload);
+      console.log('✅ API Response:', response.data);
 
-      if (response.data.success) {
-        console.log('✅ Message sent successfully');
-      }
-    } catch (error) {
-      console.error('Failed to send message:', error);
-      toast.error('Failed to send message');
+    } catch (error: any) {
+      console.error('❌ Failed to send message:', error);
+      const errorMessage = error.response?.data?.error || error.message;
+      toast.error(`Failed to send message: ${errorMessage}`);
       setMessage(prevMessage); // Restore draft
     } finally {
       setSending(false);

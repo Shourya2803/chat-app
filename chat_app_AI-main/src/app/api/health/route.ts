@@ -1,21 +1,29 @@
 import { NextResponse } from 'next/server';
-import { prisma } from '@/lib/prisma';
-import { redis } from '@/lib/redis';
-import { adminDb } from '@/lib/firebase-admin';
+import { getAdminFirestore } from '@/lib/firebase-admin';
 
 export const dynamic = 'force-dynamic';
 
 export async function GET() {
+    let firestoreStatus = 'unknown';
+    try {
+        const db = await getAdminFirestore();
+        await db.collection('health').doc('status').set({
+            lastChecked: new Date().toISOString()
+        }, { merge: true });
+        firestoreStatus = 'connected';
+    } catch (e) {
+        firestoreStatus = 'error';
+    }
+
     return NextResponse.json({
-        status: 'healthy',
+        status: firestoreStatus === 'connected' ? 'healthy' : 'degraded',
+        firestore: firestoreStatus,
         cloudinary: {
             cloudName: process.env.CLOUDINARY_CLOUD_NAME || null,
             apiKey: process.env.CLOUDINARY_API_KEY ? 'set' : 'missing',
-            apiSecret: process.env.CLOUDINARY_API_SECRET ? 'set' : 'missing',
         },
         env_diagnostic: {
             clerk: !!process.env.CLERK_SECRET_KEY,
-            db: !!process.env.DATABASE_URL,
             firebase: !!process.env.FIREBASE_PROJECT_ID,
         },
         timestamp: new Date().toISOString(),

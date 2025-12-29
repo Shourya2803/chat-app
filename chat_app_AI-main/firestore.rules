@@ -1,0 +1,31 @@
+rules_version = '2';
+
+service cloud.firestore {
+  match /databases/{database}/documents {
+    
+    // Admin Settings: Only accessible via Admin SDK (client access disabled for safety)
+    match /admin_settings/{settingId} {
+      allow read, write: if false; 
+    }
+    
+    // Users: Allow read for app functionality, write only via Admin SDK
+    match /users/{userId} {
+      allow read: if true;
+      allow write: if false;
+    }
+    
+    // Chats: Allow read for app functionality (Clerk users).
+    // Note: We move member validation to the app layer because 
+    // Firestore rules cannot verify Clerk tokens without a Firebase Auth bridge.
+    match /chats/{chatId} {
+      allow read: if true;
+      allow write: if false; 
+    }
+    
+    // Messages: Allow read for app functionality.
+    match /messages/{chatId}/messages/{messageId} {
+      allow read: if true;
+      allow write: if false;
+    }
+  }
+}
