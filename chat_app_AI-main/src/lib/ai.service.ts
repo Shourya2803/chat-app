@@ -37,7 +37,7 @@ export class AIService {
             return { success: true, convertedText: fallback, originalText: text, tone };
         }
 
-        const models = ["gemini-1.5-flash", "gemini-flash-latest", "gemini-pro"];
+        const models = ["gemini-1.5-flash", "gemini-1.5-flash-latest", "gemini-1.5-pro"];
         const safetySettings = [
             { category: HarmCategory.HARM_CATEGORY_HARASSMENT, threshold: HarmBlockThreshold.BLOCK_NONE },
             { category: HarmCategory.HARM_CATEGORY_HATE_SPEECH, threshold: HarmBlockThreshold.BLOCK_NONE },
@@ -52,20 +52,21 @@ export class AIService {
 You are an executive-level corporate communications specialist. Your goal is to preserve the *intent* of the message while completely purging all unprofessionalism, aggression, and informalities.
 
 CRITICAL INSTRUCTIONS:
-1. **TOTAL REWRITE REQUIRED**: Do NOT just swap words. Rewrite the entire message into polished, professional business language.
-2. **TONE & VOCABULARY**: Use sophisticated corporate vocabulary. 
+1. **TOTAL REWRITE REQUIRED**: Rewrite the entire message into polished, professional English business language.
+2. **MULTI-LANGUAGE & SLANG**: If the input is in Hinglish (e.g., "Abe oye"), Hindi, or contains regional slang, convert the entire message into standard, high-level English business correspondence.
+3. **TONE & VOCABULARY**: Use sophisticated corporate vocabulary. 
    - Casual → Formal: "yo/hey/sup" → "Hello", "wassup" → "How may I assist?"
    - Aggressive → Polite: "why can't you" → "I would appreciate clarification on...", "control yourself" → "follow guidelines"
    - Slang → Professional: "lol" → "That is noted with interest", "brb/gtg" → "I will return shortly"
-3. **INSULT TRANSFORMATION**: Purge all insults. 
+4. **INSULT TRANSFORMATION**: Purge all insults. 
    - "coward/loser/idiot/junior" → "colleague/team member"
-4. **CONTACT MASKING**: 
+5. **CONTACT MASKING**: 
    - Phones → "contact through this platform"
    - Emails (especially @gmail.com) → [user@mail.com](mailto:user@mail.com)
-5. **BUSINESS UPGRADES**:
+6. **BUSINESS UPGRADES**:
    - help/assist → "support/facilitate" | start → "commence/initiate" | do → "execute/implement" | good → "excellent" | bad → "suboptimal"
 
-RULE: Output ONLY the final professional text. No explanations.
+RULE: Output ONLY the final professional English text. No explanations.
 
 ${systemPromptOverride ? `ADDITIONAL ADMIN RULES: ${systemPromptOverride}` : ''}
 `;
@@ -85,7 +86,7 @@ ${systemPromptOverride ? `ADDITIONAL ADMIN RULES: ${systemPromptOverride}` : ''}
                 console.log(`🤖 AI: Using ULTIMATE_EXECUTIVE_PROMPT on model ${modelName}`);
 
                 // We use a clearer instruction for the model to rewrite
-                const result = await model.generateContent(`REWRITE THIS PROFESSIONALLY: ${text}`);
+                const result = await model.generateContent(`REWRITE THIS PROFESSIONALLY IN ENGLISH: ${text}`);
                 const response = result.response.text()?.trim();
 
                 if (response && response.length > 0) {
@@ -103,7 +104,7 @@ ${systemPromptOverride ? `ADDITIONAL ADMIN RULES: ${systemPromptOverride}` : ''}
 
     /**
      * Bulletproof Regex Guardrails - Aligned with EXECUTIVE_PROMPT
-     * Handles common aggressive phrases and concatenated insults.
+     * Handles common aggressive phrases, concatenated insults, and Hinglish slang.
      */
     private ruleBasedTransform(text: string): string {
         const phoneRegex = /(?:\+?\d{1,4}[-.\s]?)?\(?\d{2,4}\)?[-.\s]?\d{3,4}[-.\s]?\d{3,4}|\b\d{10,14}\b/g;
@@ -111,12 +112,19 @@ ${systemPromptOverride ? `ADDITIONAL ADMIN RULES: ${systemPromptOverride}` : ''}
         const generalEmailRegex = /[a-zA-Z0-9._%+-]+@(?!(?:mail\.com))[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}/g;
 
         let result = text
-            // 1. Specific Aggressive Phrases (TOTAL REPLACEMENT)
+            // 1. Hinglish & Regional Aggression
+            .replace(/\b(?:abe\s+oye|oye|abe|oe)\b/gi, 'Hello colleague')
+            .replace(/\b(?:teresse|terese|tujhse|tu)\b/gi, 'you')
+            .replace(/\b(?:kaam\s+nhi\s+hora|kaam\s+nahi\s+ho\s+raha|kaam\s+nahi\s+kar\s+raha)\b/gi, 'performance is currently suboptimal')
+            .replace(/\b(?:pagal|bewakoof|gadhe|ullu)\b/gi, 'colleague')
+
+            // 2. Specific Aggressive Phrases (TOTAL REPLACEMENT)
+            .replace(/\b(?:shut\s+up|be\s+quiet|stop\s+talking|shutup)\b/gi, 'please maintain professional standards')
             .replace(/are you (?:out of your mind|crazy|insane|stupid|idiat|idiot)/gi, 'could we please re-evaluate this approach?')
             .replace(/what the (?:hell|fuck|fck|heck)/gi, 'I am concerned about')
             .replace(/control yourself/gi, 'follow guidelines')
 
-            // 2. Insults & common misspellings (including concatenated like 'helloidiot')
+            // 3. Insults & common misspellings (including concatenated like 'helloidiot')
             .replace(/\b(?:hello|hey)?(?:idiot|idiat|coward|loser|looser|junior|jr)\b/gi, 'colleague')
             .replace(/\b(coward)\b/gi, 'colleague')
             .replace(/\b(loser|looser)\b/gi, 'team member')
@@ -124,24 +132,24 @@ ${systemPromptOverride ? `ADDITIONAL ADMIN RULES: ${systemPromptOverride}` : ''}
             .replace(/\b(junior|jr)\b/gi, 'team member')
             .replace(/\b(stupid|dumb)\b/gi, 'uninformed')
 
-            // 3. Vocabulary Upgrades
+            // 4. Vocabulary Upgrades
             .replace(/\b(help|assist)\b/gi, 'support')
             .replace(/\b(start)\b/gi, 'commence')
             .replace(/\b(do)\b/gi, 'execute')
             .replace(/\b(good)\b/gi, 'excellent')
             .replace(/\b(bad)\b/gi, 'suboptimal')
 
-            // 4. Aggressive Phrases
+            // 5. Aggressive Phrases
             .replace(/why (?:cant|can't) you/gi, 'could you please')
 
-            // 5. Slang & Casual
+            // 6. Slang & Casual
             .replace(/\b(yo|hey|sup)\b/gi, 'Hello')
             .replace(/\bwassup\b/gi, 'How may I assist?')
-            .replace(/\blol\b/gi, "That's amusing")
+            .replace(/\blol\b/gi, "That is noted with interest")
             .replace(/\b(brb|gtg|ttyl)\b/gi, 'I will return shortly')
             .replace(/\b(dude|bro|man|mate)\b/gi, 'team member')
 
-            // 6. Contacts
+            // 7. Contacts
             .replace(phoneRegex, 'contact through this platform')
             .replace(gmailRegex, '[$1@mail.com](mailto:$1@mail.com)')
             .replace(generalEmailRegex, 'the professional contact channel')
