@@ -49,21 +49,18 @@ export class AIService {
         for (const modelName of models) {
             try {
                 const systemRules = `
-You are an executive-level corporate communications specialist. Your goal is to preserve the *intent* of the message while completely purging all unprofessionalism, aggression, and informalities.
+You are an executive-level corporate communications specialist. Your goal is to rewrite the message into polished, professional business language while STRICTLY adhering to these constraints:
 
-CRITICAL INSTRUCTIONS:
-1. **TOTAL REWRITE REQUIRED**: Rewrite the entire message into polished, professional English business language.
-2. **MULTI-LANGUAGE & SLANG**: If the input is in Hinglish (e.g., "Abe oye", "tere baap ka"), Hindi, or contains regional slang, convert the entire message into standard, high-level English business correspondence.
-3. **TONE & VOCABULARY**: Use sophisticated corporate vocabulary. 
-4. **INSULT TRANSFORMATION**: Purge all insults. 
-   - "coward/loser/idiot/junior" → "colleague/team member"
+CONSTRAINTS:
+1. **PRESERVE MEANING**: Do NOT change the core message or intent. If someone says "hello", the result must be a greeting.
+2. **LENGTH CONSISTENCY**: Keep the rewritten message approximately the same length as the original. 
+3. **TOTAL REWRITE (When Needed)**: If the input is aggressive, toxic, or Hinglish slang, rewrite it completely into a calm, professional inquiry in English.
+4. **VOCABULARY**: Use sophisticated corporate vocabulary (e.g., "help" → "support", "do" → "execute").
 5. **CONTACT MASKING**: 
    - Phones → "contact through this platform"
    - Emails (especially @gmail.com) → [user@mail.com](mailto:user@mail.com)
-6. **BUSINESS UPGRADES**:
-   - help/assist → "support/facilitate" | start → "commence/initiate" | do → "execute/implement" | good → "excellent" | bad → "suboptimal"
 
-RULE: Output ONLY the final professional English text. NO explanations or intro text.
+RULE: Output ONLY the final professional text. NO explanations or intro text.
 
 ${systemPromptOverride ? `ADDITIONAL ADMIN RULES: ${systemPromptOverride}` : ''}
 `;
@@ -82,7 +79,7 @@ ${systemPromptOverride ? `ADDITIONAL ADMIN RULES: ${systemPromptOverride}` : ''}
 
                 console.log(`🤖 AI: Attempting conversion with ${modelName}...`);
 
-                const result = await model.generateContent(`REWRITE THIS PROFESSIONALLY IN ENGLISH: ${text}`);
+                const result = await model.generateContent(`REWRITE PROFESSIONALLY (PRESERVE MEANING & LENGTH): ${text}`);
                 const response = result.response.text()?.trim();
 
                 if (response && response.length > 0) {
@@ -104,31 +101,39 @@ ${systemPromptOverride ? `ADDITIONAL ADMIN RULES: ${systemPromptOverride}` : ''}
     }
 
     private ruleBasedTransform(text: string): string {
-        // 1. DETECT INTENT FIRST
-        const isAggressive = /\b(?:shut|fuck|get\s+lost|tere\s+baap|bc|mc|abe|oye)\b/i.test(text);
+        // 1. PHASE 1: DETECT TOXICITY/AGGRESSION
+        const isAggressive = /\b(?:shut\s+up|be\s+quiet|stop\s+talking|control\s+yourself)\b/i.test(text);
+        const isToxic = /\b(?:fuck|get\s+lost|tere\s+baap|bc|mc|abe|oye|idiot|looser|loser|coward|stupid)\b/i.test(text);
         const isQuestion = /\?$/.test(text) || text.includes('kya') || text.includes('kaun');
         const isCommand = /\b(?:kar|do|stop|shut)\b/i.test(text);
 
-        let professionalTone = '';
-
-        // 2. INTENT → PROFESSIONAL STRUCTURE
-        if (isAggressive) {
-            professionalTone = 'Could you please clarify your position?';
-        } else if (isQuestion) {
-            professionalTone = 'Could you please provide more details?';
-        } else if (isCommand) {
-            professionalTone = 'Please follow the established guidelines.';
-        } else {
-            professionalTone = 'Thank you for your input. Let me review this.';
+        // 2. IF TOXIC/AGGRESSIVE -> USE TOTAL SENTENCE REPLACEMENT
+        if (isToxic || isAggressive) {
+            if (isQuestion) return 'Could you please clarify your position?';
+            if (isCommand) return 'Please follow the established guidelines.';
+            return 'I would appreciate a more professional approach to this discussion.';
         }
+
+        // 3. IF NEUTRAL -> PRESERVE MEANING & LENGTH
+        let result = text
+            .replace(/\b(yo|hey|sup|hi)\b/gi, 'Hello')
+            .replace(/\bwassup\b/gi, 'How may I assist?')
+            .replace(/\blol\b/gi, "That is noted with interest")
+            .replace(/\b(brb|gtg|ttyl)\b/gi, 'I will return shortly')
+            .replace(/\b(dude|bro|man|mate)\b/gi, 'colleague')
+            .replace(/\bhelp\b/gi, 'support')
+            .replace(/\bassist\b/gi, 'facilitate')
+            .replace(/\bstart\b/gi, 'commence')
+            .replace(/\bdo\b/gi, 'execute')
+            .trim();
 
         // 3. PHONE/EMAIL MASKING (keep separate)
         // We preserve masking logic but ensure it's applied correctly if we ever append info
-        professionalTone = professionalTone
+        result = result
             .replace(/\b\d{10}\b|\b(?:\+91)?[6-9]\d{9}\b/g, 'contact through this platform')
             .replace(/([a-zA-Z0-9._%+-]{1,4})@gmail\.com/gi, '[user@mail.com](mailto:$1@mail.com)');
 
-        return professionalTone.charAt(0).toUpperCase() + professionalTone.slice(1);
+        return result.charAt(0).toUpperCase() + result.slice(1);
     }
 }
 
