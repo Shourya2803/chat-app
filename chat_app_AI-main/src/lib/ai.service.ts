@@ -49,31 +49,19 @@ export class AIService {
         for (const modelName of models) {
             try {
                 const systemRules = `
-You are an executive-level corporate communications specialist. Transform ALL input into polished, professional business language following these NON-NEGOTIABLE rules:
+You are an executive-level corporate communications specialist. Your goal is to preserve the *intent* of the message while completely purging all unprofessionalism, aggression, and informalities.
 
-CORE TRANSFORMATION RULES:
-1. **Casual → Formal**: "yo/hey/sup" → "Hello", "wassup" → "How may I assist?"
-2. **Insults → Neutral**: "coward/loser/idiot/junior" → "colleague/team member"
-3. **Aggressive → Polite**: "why can't you" → "could you please", "control yourself" → "follow guidelines"
-4. **Slang → Professional**: "lol" → "That's amusing", "brb/gtg" → "I'll return shortly"
-5. **Profanity**: Remove completely, replace with neutral phrasing
-6. **Phones**: → "contact through this platform"
-7. **Emails**: user@gmail.com → [user@mail.com](mailto:user@mail.com)
+CRITICAL INSTRUCTIONS:
+1. **TOTAL REWRITE REQUIRED**: Do NOT just swap words. If a sentence is aggressive (e.g., "Are you out of your mind?"), rewrite the ENTIRE sentence to be a professional inquiry (e.g., "I would appreciate some clarification on this approach.").
+2. **PURGE INSULTS**: Completely remove or transform insults into professional identifiers (e.g., "idiot" -> "colleague").
+3. **TONE SHIFT**: Change "Why can't you..." to "I would appreciate it if you could...".
+4. **NO AGGRESSION**: If the original is angry, the result must be calm, measured, and corporate.
+5. **EMAILS/PHONES**: Mask as: [XREX@mail.com](mailto:XREX@mail.com) and "contact through this platform".
 
-BUSINESS VOCABULARY UPGRADE:
-- help/assist → "support/facilitate"
-- start → "commence/initiate" 
-- do → "execute/implement"
-- good → "excellent/outstanding"
-- bad → "suboptimal/requires improvement"
+BUSINESS VOCABULARY:
+- help -> support | start -> commencement | do -> execute | bad -> suboptimal
 
-TONE REQUIREMENTS:
-- Always polite, respectful, collaborative
-- Structured sentences with proper grammar
-- Professional greetings/closings when appropriate
-- Capitalize first letter, end with proper punctuation
-
-RULE: Output ONLY final professional text. NO explanations.
+RULE: Output ONLY the final professional text. No explanations.
 
 ${systemPromptOverride ? `ADDITIONAL ADMIN RULES: ${systemPromptOverride}` : ''}
 `;
@@ -90,9 +78,9 @@ ${systemPromptOverride ? `ADDITIONAL ADMIN RULES: ${systemPromptOverride}` : ''}
                     safetySettings
                 });
 
-                console.log(`🤖 AI: Using EXECUTIVE_PROMPT on model ${modelName}`);
+                console.log(`🤖 AI: Using ULTIMATE_EXECUTIVE_PROMPT on model ${modelName}`);
 
-                const result = await model.generateContent(`ORIGINAL: ${text}`);
+                const result = await model.generateContent(`ORIGINAL MESSAGE TO REWRITE: ${text}`);
                 const response = result.response.text()?.trim();
 
                 if (response && response.length > 0) {
@@ -110,6 +98,7 @@ ${systemPromptOverride ? `ADDITIONAL ADMIN RULES: ${systemPromptOverride}` : ''}
 
     /**
      * Bulletproof Regex Guardrails - Aligned with EXECUTIVE_PROMPT
+     * Handles common aggressive phrases and concatenated insults.
      */
     private ruleBasedTransform(text: string): string {
         const phoneRegex = /(?:\+?\d{1,4}[-.\s]?)?\(?\d{2,4}\)?[-.\s]?\d{3,4}[-.\s]?\d{3,4}|\b\d{10,14}\b/g;
@@ -117,33 +106,34 @@ ${systemPromptOverride ? `ADDITIONAL ADMIN RULES: ${systemPromptOverride}` : ''}
         const generalEmailRegex = /[a-zA-Z0-9._%+-]+@(?!(?:mail\.com))[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}/g;
 
         let result = text
-            // 1. Specific Insults & common misspellings
-            .replace(/\b(coward)\b/gi, 'colleague')
-            .replace(/\b(loser|looser)\b/gi, 'peer')
-            .replace(/\b(idiot|idiat)\b/gi, 'associate')
-            .replace(/\b(junior|jr)\b/gi, 'team member')
+            // 1. Specific Aggressive Phrases (TOTAL REPLACEMENT)
+            .replace(/are you (?:out of your mind|crazy|insane|stupid|idiat|idiot)/gi, 'could we please re-evaluate this approach?')
+            .replace(/what the (?:hell|fuck|fck|heck)/gi, 'I am concerned about')
+            .replace(/control yourself/gi, 'maintain professional standards')
+
+            // 2. Insults & common misspellings (including concatenated like 'helloidiot')
+            .replace(/\b(?:hello|hey)?(?:idiot|idiat|coward|loser|looser|junior|jr)\b/gi, 'colleague')
             .replace(/\b(stupid|dumb)\b/gi, 'uninformed')
             .replace(/\b(failure)\b/gi, 'opportunity')
 
-            // 2. Vocabulary Upgrades
+            // 3. Vocabulary Upgrades
             .replace(/\b(help|assist)\b/gi, 'support')
             .replace(/\b(start)\b/gi, 'commence')
             .replace(/\b(do)\b/gi, 'execute')
             .replace(/\b(good)\b/gi, 'excellent')
             .replace(/\b(bad)\b/gi, 'suboptimal')
 
-            // 3. Aggressive Phrases
+            // 4. Aggressive Phrases
             .replace(/why (?:cant|can't) you/gi, 'could you please')
-            .replace(/(?:be under control|control yourself)/gi, 'follow our guidelines')
 
-            // 4. Slang & Casual
+            // 5. Slang & Casual
             .replace(/\b(yo|hey|sup)\b/gi, 'Hello')
             .replace(/\bwassup\b/gi, 'How may I assist?')
             .replace(/\blol\b/gi, "That's amusing")
             .replace(/\b(brb|gtg|ttyl)\b/gi, 'I will return shortly')
             .replace(/\b(dude|bro|man|mate)\b/gi, 'team member')
 
-            // 5. Contacts (Special Handling for Emails to avoid double replacement)
+            // 6. Contacts
             .replace(phoneRegex, 'contact through this platform')
             .replace(gmailRegex, '[$1@mail.com](mailto:$1@mail.com)')
             .replace(generalEmailRegex, 'the professional contact channel')
