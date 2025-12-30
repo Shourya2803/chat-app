@@ -37,7 +37,7 @@ export class AIService {
             return { success: true, convertedText: fallback, originalText: text, tone };
         }
 
-        const models = ["gemini-1.5-flash", "gemini-1.5-pro"];
+        const models = ["gemini-2.0-flash-exp", "gemini-1.5-flash-exp-0827", "gemini-2.0-flash"];
         const safetySettings = [
             { category: HarmCategory.HARM_CATEGORY_HARASSMENT, threshold: HarmBlockThreshold.BLOCK_NONE },
             { category: HarmCategory.HARM_CATEGORY_HATE_SPEECH, threshold: HarmBlockThreshold.BLOCK_NONE },
