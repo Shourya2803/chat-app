@@ -49,25 +49,29 @@ export class AIService {
         for (const modelName of models) {
             try {
                 const systemRules = `
-You are a corporate communications AI with NON-NEGOTIABLE rules that ALWAYS apply:
+You are an executive-level corporate communications specialist. Transform ALL input into polished, professional business language following these NON-NEGOTIABLE rules:
 
-CRITICAL TRANSFORMATION RULES (NEVER SKIP):
-1. **INSULTS → PROFESSIONAL**: 
-   coward → colleague | junior → team member | idiot → associate
-   stupid → uninformed | loser → peer | failure → opportunity
-2. **PROFANITY → NEUTRAL**: Remove ALL swearing completely
-3. **AGGRESSIVE → POLITE**: 
-   "why cant you" → "could you please"
-   "be under control" → "follow our guidelines"
-4. **PHONES → "contact through this platform"
-5. **Gmail → [XREX@mail.com](mailto:XREX@mail.com)
+CORE TRANSFORMATION RULES:
+1. **Casual → Formal**: "yo/hey/sup" → "Hello", "wassup" → "How may I assist?"
+2. **Insults → Neutral**: "coward/loser/idiot/junior" → "colleague/team member"
+3. **Aggressive → Polite**: "why can't you" → "could you please", "control yourself" → "follow guidelines"
+4. **Slang → Professional**: "lol" → "That's amusing", "brb/gtg" → "I'll return shortly"
+5. **Profanity**: Remove completely, replace with neutral phrasing
+6. **Phones**: → "contact through this platform"
+7. **Emails**: user@gmail.com → [user@mail.com](mailto:user@mail.com)
 
-EXACT EXAMPLES (FOLLOW THESE):
-- "hello coward junior why cant you be under control" 
-  → "Hello colleague, could you please follow our guidelines?"
+BUSINESS VOCABULARY UPGRADE:
+- help/assist → "support/facilitate"
+- start → "commence/initiate" 
+- do → "execute/implement"
+- good → "excellent/outstanding"
+- bad → "suboptimal/requires improvement"
 
-- "yo loser idiot call 555-1234 john@gmail.com"
-  → "Hello colleague, please contact me through this platform: [john@mail.com](mailto:john@mail.com)"
+TONE REQUIREMENTS:
+- Always polite, respectful, collaborative
+- Structured sentences with proper grammar
+- Professional greetings/closings when appropriate
+- Capitalize first letter, end with proper punctuation
 
 RULE: Output ONLY final professional text. NO explanations.
 
@@ -86,7 +90,7 @@ ${systemPromptOverride ? `ADDITIONAL ADMIN RULES: ${systemPromptOverride}` : ''}
                     safetySettings
                 });
 
-                console.log(`🤖 AI: Using ULTIMATE_PROMPT on model ${modelName}`);
+                console.log(`🤖 AI: Using EXECUTIVE_PROMPT on model ${modelName}`);
 
                 const result = await model.generateContent(`ORIGINAL: ${text}`);
                 const response = result.response.text()?.trim();
@@ -105,34 +109,44 @@ ${systemPromptOverride ? `ADDITIONAL ADMIN RULES: ${systemPromptOverride}` : ''}
     }
 
     /**
-     * Bulletproof Regex Guardrails - Aligned with ULTIMATE_PROMPT
+     * Bulletproof Regex Guardrails - Aligned with EXECUTIVE_PROMPT
      */
     private ruleBasedTransform(text: string): string {
         const phoneRegex = /(?:\+?\d{1,4}[-.\s]?)?\(?\d{2,4}\)?[-.\s]?\d{3,4}[-.\s]?\d{3,4}|\b\d{10,14}\b/g;
-        const emailRegex = /[a-zA-Z0-9._%+-]+@gmail\.com/gi;
-        const generalEmailRegex = /[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}/g;
+        const gmailRegex = /([a-zA-Z0-9._%+-]+)@gmail\.com/gi;
+        const generalEmailRegex = /[a-zA-Z0-9._%+-]+@(?!(?:mail\.com))[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}/g;
 
         let result = text
-            // 1. Specific Insults
-            .replace(/\bcoward\b/gi, 'colleague')
-            .replace(/\bjunior\b/gi, 'team member')
-            .replace(/\bidiot\b/gi, 'associate')
-            .replace(/\bstupid\b/gi, 'uninformed')
-            .replace(/\bloser\b/gi, 'peer')
-            .replace(/\bfailure\b/gi, 'opportunity')
+            // 1. Specific Insults & common misspellings
+            .replace(/\b(coward)\b/gi, 'colleague')
+            .replace(/\b(loser|looser)\b/gi, 'peer')
+            .replace(/\b(idiot|idiat)\b/gi, 'associate')
+            .replace(/\b(junior|jr)\b/gi, 'team member')
+            .replace(/\b(stupid|dumb)\b/gi, 'uninformed')
+            .replace(/\b(failure)\b/gi, 'opportunity')
 
-            // 2. Aggressive Phrases
+            // 2. Vocabulary Upgrades
+            .replace(/\b(help|assist)\b/gi, 'support')
+            .replace(/\b(start)\b/gi, 'commence')
+            .replace(/\b(do)\b/gi, 'execute')
+            .replace(/\b(good)\b/gi, 'excellent')
+            .replace(/\b(bad)\b/gi, 'suboptimal')
+
+            // 3. Aggressive Phrases
             .replace(/why (?:cant|can't) you/gi, 'could you please')
-            .replace(/be under control/gi, 'follow our guidelines')
+            .replace(/(?:be under control|control yourself)/gi, 'follow our guidelines')
 
-            // 3. Contacts
-            .replace(phoneRegex, 'contact through this platform')
-            .replace(emailRegex, '[XREX@mail.com](mailto:XREX@mail.com)')
-            .replace(generalEmailRegex, 'the professional contact channel')
-
-            // 4. General Tone
-            .replace(/\b(yo|hey|sup|wassup)\b/gi, 'Hello')
+            // 4. Slang & Casual
+            .replace(/\b(yo|hey|sup)\b/gi, 'Hello')
+            .replace(/\bwassup\b/gi, 'How may I assist?')
+            .replace(/\blol\b/gi, "That's amusing")
+            .replace(/\b(brb|gtg|ttyl)\b/gi, 'I will return shortly')
             .replace(/\b(dude|bro|man|mate)\b/gi, 'team member')
+
+            // 5. Contacts (Special Handling for Emails to avoid double replacement)
+            .replace(phoneRegex, 'contact through this platform')
+            .replace(gmailRegex, '[$1@mail.com](mailto:$1@mail.com)')
+            .replace(generalEmailRegex, 'the professional contact channel')
             .trim();
 
         if (!result) return text;
