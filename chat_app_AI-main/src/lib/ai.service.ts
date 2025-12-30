@@ -37,7 +37,7 @@ export class AIService {
             return { success: true, convertedText: fallback, originalText: text, tone };
         }
 
-        const models = ["gemini-1.5-flash", "gemini-1.5-flash-latest", "gemini-1.5-pro"];
+        const models = ["gemini-1.5-flash", "gemini-1.5-pro"];
         const safetySettings = [
             { category: HarmCategory.HARM_CATEGORY_HARASSMENT, threshold: HarmBlockThreshold.BLOCK_NONE },
             { category: HarmCategory.HARM_CATEGORY_HATE_SPEECH, threshold: HarmBlockThreshold.BLOCK_NONE },
@@ -53,11 +53,8 @@ You are an executive-level corporate communications specialist. Your goal is to 
 
 CRITICAL INSTRUCTIONS:
 1. **TOTAL REWRITE REQUIRED**: Rewrite the entire message into polished, professional English business language.
-2. **MULTI-LANGUAGE & SLANG**: If the input is in Hinglish (e.g., "Abe oye"), Hindi, or contains regional slang, convert the entire message into standard, high-level English business correspondence.
+2. **MULTI-LANGUAGE & SLANG**: If the input is in Hinglish (e.g., "Abe oye", "tere baap ka"), Hindi, or contains regional slang, convert the entire message into standard, high-level English business correspondence.
 3. **TONE & VOCABULARY**: Use sophisticated corporate vocabulary. 
-   - Casual → Formal: "yo/hey/sup" → "Hello", "wassup" → "How may I assist?"
-   - Aggressive → Polite: "why can't you" → "I would appreciate clarification on...", "control yourself" → "follow guidelines"
-   - Slang → Professional: "lol" → "That is noted with interest", "brb/gtg" → "I will return shortly"
 4. **INSULT TRANSFORMATION**: Purge all insults. 
    - "coward/loser/idiot/junior" → "colleague/team member"
 5. **CONTACT MASKING**: 
@@ -66,7 +63,7 @@ CRITICAL INSTRUCTIONS:
 6. **BUSINESS UPGRADES**:
    - help/assist → "support/facilitate" | start → "commence/initiate" | do → "execute/implement" | good → "excellent" | bad → "suboptimal"
 
-RULE: Output ONLY the final professional English text. No explanations.
+RULE: Output ONLY the final professional English text. NO explanations or intro text.
 
 ${systemPromptOverride ? `ADDITIONAL ADMIN RULES: ${systemPromptOverride}` : ''}
 `;
@@ -83,9 +80,8 @@ ${systemPromptOverride ? `ADDITIONAL ADMIN RULES: ${systemPromptOverride}` : ''}
                     safetySettings
                 });
 
-                console.log(`🤖 AI: Using ULTIMATE_EXECUTIVE_PROMPT on model ${modelName}`);
+                console.log(`🤖 AI: Attempting conversion with ${modelName}...`);
 
-                // We use a clearer instruction for the model to rewrite
                 const result = await model.generateContent(`REWRITE THIS PROFESSIONALLY IN ENGLISH: ${text}`);
                 const response = result.response.text()?.trim();
 
@@ -94,76 +90,45 @@ ${systemPromptOverride ? `ADDITIONAL ADMIN RULES: ${systemPromptOverride}` : ''}
                     return { success: true, convertedText: response, originalText: text, tone };
                 }
             } catch (error: any) {
+                console.error(`❌ AI ERROR DETAILS (${modelName}):`, JSON.stringify(error, null, 2));
                 const errorMsg = error.message || error.toString();
-                console.warn(`⚠️ AI: ${modelName} failed: ${errorMsg.slice(0, 100)}...`);
+                console.warn(`⚠️ AI: ${modelName} failed. Reason: ${errorMsg}`);
+
+                if (errorMsg.includes('fetch') || errorMsg.includes('network')) {
+                    console.error('🌐 CONNECTION ERROR: Server cannot reach Google Generative AI servers. Check billing, API key, or network/VPN restrictions.');
+                }
             }
         }
 
         return { success: true, convertedText: fallback, originalText: text, tone };
     }
 
-    /**
-     * Bulletproof Regex Guardrails - Aligned with EXECUTIVE_PROMPT
-     * Handles common aggressive phrases, concatenated insults, and Hinglish slang.
-     */
     private ruleBasedTransform(text: string): string {
-        const phoneRegex = /(?:\+?\d{1,4}[-.\s]?)?\(?\d{2,4}\)?[-.\s]?\d{3,4}[-.\s]?\d{3,4}|\b\d{10,14}\b/g;
-        const gmailRegex = /([a-zA-Z0-9._%+-]+)@gmail\.com/gi;
-        const generalEmailRegex = /[a-zA-Z0-9._%+-]+@(?!(?:mail\.com))[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}/g;
+        // 1. DETECT INTENT FIRST
+        const isAggressive = /\b(?:shut|fuck|get\s+lost|tere\s+baap|bc|mc|abe|oye)\b/i.test(text);
+        const isQuestion = /\?$/.test(text) || text.includes('kya') || text.includes('kaun');
+        const isCommand = /\b(?:kar|do|stop|shut)\b/i.test(text);
 
-        let result = text
-            // 1. Hinglish & Regional Aggression
-            .replace(/\b(?:abe\s+oye|oye|abe|oe)\b/gi, 'Hello colleague')
-            .replace(/\b(?:teresse|terese|tujhse|tu)\b/gi, 'you')
-            .replace(/\b(?:kaam\s+nhi\s+hora|kaam\s+nahi\s+ho\s+raha|kaam\s+nahi\s+kar\s+raha)\b/gi, 'performance is currently suboptimal')
-            .replace(/\b(?:pagal|bewakoof|gadhe|ullu)\b/gi, 'colleague')
+        let professionalTone = '';
 
-            // 2. Specific Aggressive Phrases (TOTAL REPLACEMENT)
-            .replace(/\b(?:shut\s+up|be\s+quiet|stop\s+talking|shutup)\b/gi, 'please maintain professional standards')
-            .replace(/are you (?:out of your mind|crazy|insane|stupid|idiat|idiot)/gi, 'could we please re-evaluate this approach?')
-            .replace(/what the (?:hell|fuck|fck|heck)/gi, 'I am concerned about')
-            .replace(/control yourself/gi, 'follow guidelines')
-
-            // 3. Insults & common misspellings (including concatenated like 'helloidiot')
-            .replace(/\b(?:hello|hey)?(?:idiot|idiat|coward|loser|looser|junior|jr)\b/gi, 'colleague')
-            .replace(/\b(coward)\b/gi, 'colleague')
-            .replace(/\b(loser|looser)\b/gi, 'team member')
-            .replace(/\b(idiot|idiat)\b/gi, 'associate')
-            .replace(/\b(junior|jr)\b/gi, 'team member')
-            .replace(/\b(stupid|dumb)\b/gi, 'uninformed')
-
-            // 4. Vocabulary Upgrades
-            .replace(/\b(help|assist)\b/gi, 'support')
-            .replace(/\b(start)\b/gi, 'commence')
-            .replace(/\b(do)\b/gi, 'execute')
-            .replace(/\b(good)\b/gi, 'excellent')
-            .replace(/\b(bad)\b/gi, 'suboptimal')
-
-            // 5. Aggressive Phrases
-            .replace(/why (?:cant|can't) you/gi, 'could you please')
-
-            // 6. Slang & Casual
-            .replace(/\b(yo|hey|sup)\b/gi, 'Hello')
-            .replace(/\bwassup\b/gi, 'How may I assist?')
-            .replace(/\blol\b/gi, "That is noted with interest")
-            .replace(/\b(brb|gtg|ttyl)\b/gi, 'I will return shortly')
-            .replace(/\b(dude|bro|man|mate)\b/gi, 'team member')
-
-            // 7. Contacts
-            .replace(phoneRegex, 'contact through this platform')
-            .replace(gmailRegex, '[$1@mail.com](mailto:$1@mail.com)')
-            .replace(generalEmailRegex, 'the professional contact channel')
-            .trim();
-
-        if (!result) return text;
-
-        // Ensure sentence structure
-        result = result.charAt(0).toUpperCase() + result.slice(1);
-        if (!/[.!?]$/.test(result)) {
-            result += '.';
+        // 2. INTENT → PROFESSIONAL STRUCTURE
+        if (isAggressive) {
+            professionalTone = 'Could you please clarify your position?';
+        } else if (isQuestion) {
+            professionalTone = 'Could you please provide more details?';
+        } else if (isCommand) {
+            professionalTone = 'Please follow the established guidelines.';
+        } else {
+            professionalTone = 'Thank you for your input. Let me review this.';
         }
 
-        return result;
+        // 3. PHONE/EMAIL MASKING (keep separate)
+        // We preserve masking logic but ensure it's applied correctly if we ever append info
+        professionalTone = professionalTone
+            .replace(/\b\d{10}\b|\b(?:\+91)?[6-9]\d{9}\b/g, 'contact through this platform')
+            .replace(/([a-zA-Z0-9._%+-]{1,4})@gmail\.com/gi, '[user@mail.com](mailto:$1@mail.com)');
+
+        return professionalTone.charAt(0).toUpperCase() + professionalTone.slice(1);
     }
 }
 
