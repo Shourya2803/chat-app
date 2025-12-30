@@ -37,7 +37,7 @@ export class AIService {
             return { success: true, convertedText: fallback, originalText: text, tone };
         }
 
-        const models = ["gemini-1.5-flash", "gemini-1.5-flash-latest", "gemini-pro"];
+        const models = ["gemini-1.5-flash", "gemini-flash-latest", "gemini-pro"];
         const safetySettings = [
             { category: HarmCategory.HARM_CATEGORY_HARASSMENT, threshold: HarmBlockThreshold.BLOCK_NONE },
             { category: HarmCategory.HARM_CATEGORY_HATE_SPEECH, threshold: HarmBlockThreshold.BLOCK_NONE },
@@ -45,21 +45,25 @@ export class AIService {
             { category: HarmCategory.HARM_CATEGORY_DANGEROUS_CONTENT, threshold: HarmBlockThreshold.BLOCK_NONE },
         ];
 
-        // 3. Process with ULTIMATE_PROMPT
+        // 3. Process with ULTIMATE_EXECUTIVE_PROMPT
         for (const modelName of models) {
             try {
                 const systemRules = `
 You are an executive-level corporate communications specialist. Your goal is to preserve the *intent* of the message while completely purging all unprofessionalism, aggression, and informalities.
 
 CRITICAL INSTRUCTIONS:
-1. **TOTAL REWRITE REQUIRED**: Do NOT just swap words. If a sentence is aggressive (e.g., "Are you out of your mind?"), rewrite the ENTIRE sentence to be a professional inquiry (e.g., "I would appreciate some clarification on this approach.").
-2. **PURGE INSULTS**: Completely remove or transform insults into professional identifiers (e.g., "idiot" -> "colleague").
-3. **TONE SHIFT**: Change "Why can't you..." to "I would appreciate it if you could...".
-4. **NO AGGRESSION**: If the original is angry, the result must be calm, measured, and corporate.
-5. **EMAILS/PHONES**: Mask as: [XREX@mail.com](mailto:XREX@mail.com) and "contact through this platform".
-
-BUSINESS VOCABULARY:
-- help -> support | start -> commencement | do -> execute | bad -> suboptimal
+1. **TOTAL REWRITE REQUIRED**: Do NOT just swap words. Rewrite the entire message into polished, professional business language.
+2. **TONE & VOCABULARY**: Use sophisticated corporate vocabulary. 
+   - Casual → Formal: "yo/hey/sup" → "Hello", "wassup" → "How may I assist?"
+   - Aggressive → Polite: "why can't you" → "I would appreciate clarification on...", "control yourself" → "follow guidelines"
+   - Slang → Professional: "lol" → "That is noted with interest", "brb/gtg" → "I will return shortly"
+3. **INSULT TRANSFORMATION**: Purge all insults. 
+   - "coward/loser/idiot/junior" → "colleague/team member"
+4. **CONTACT MASKING**: 
+   - Phones → "contact through this platform"
+   - Emails (especially @gmail.com) → [user@mail.com](mailto:user@mail.com)
+5. **BUSINESS UPGRADES**:
+   - help/assist → "support/facilitate" | start → "commence/initiate" | do → "execute/implement" | good → "excellent" | bad → "suboptimal"
 
 RULE: Output ONLY the final professional text. No explanations.
 
@@ -80,7 +84,8 @@ ${systemPromptOverride ? `ADDITIONAL ADMIN RULES: ${systemPromptOverride}` : ''}
 
                 console.log(`🤖 AI: Using ULTIMATE_EXECUTIVE_PROMPT on model ${modelName}`);
 
-                const result = await model.generateContent(`ORIGINAL MESSAGE TO REWRITE: ${text}`);
+                // We use a clearer instruction for the model to rewrite
+                const result = await model.generateContent(`REWRITE THIS PROFESSIONALLY: ${text}`);
                 const response = result.response.text()?.trim();
 
                 if (response && response.length > 0) {
@@ -109,12 +114,15 @@ ${systemPromptOverride ? `ADDITIONAL ADMIN RULES: ${systemPromptOverride}` : ''}
             // 1. Specific Aggressive Phrases (TOTAL REPLACEMENT)
             .replace(/are you (?:out of your mind|crazy|insane|stupid|idiat|idiot)/gi, 'could we please re-evaluate this approach?')
             .replace(/what the (?:hell|fuck|fck|heck)/gi, 'I am concerned about')
-            .replace(/control yourself/gi, 'maintain professional standards')
+            .replace(/control yourself/gi, 'follow guidelines')
 
             // 2. Insults & common misspellings (including concatenated like 'helloidiot')
             .replace(/\b(?:hello|hey)?(?:idiot|idiat|coward|loser|looser|junior|jr)\b/gi, 'colleague')
+            .replace(/\b(coward)\b/gi, 'colleague')
+            .replace(/\b(loser|looser)\b/gi, 'team member')
+            .replace(/\b(idiot|idiat)\b/gi, 'associate')
+            .replace(/\b(junior|jr)\b/gi, 'team member')
             .replace(/\b(stupid|dumb)\b/gi, 'uninformed')
-            .replace(/\b(failure)\b/gi, 'opportunity')
 
             // 3. Vocabulary Upgrades
             .replace(/\b(help|assist)\b/gi, 'support')
