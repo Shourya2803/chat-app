@@ -38,10 +38,9 @@ export class AIService {
         }
 
         const models = [
-            "gemini-1.5-flash-002",
-            "gemini-1.5-pro-002",
-            "gemini-2.0-flash-exp",
-            "gemini-2.0-flash"
+            "gemini-1.5-flash",
+            "gemini-flash-latest"
+
         ];
         const safetySettings = [
             { category: HarmCategory.HARM_CATEGORY_HARASSMENT, threshold: HarmBlockThreshold.BLOCK_NONE },
