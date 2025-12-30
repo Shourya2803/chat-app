@@ -20,6 +20,17 @@ export default function GroupSettingsModal({ chatId, currentName, onCloseAction 
 
     const handleUpdateName = async (e: React.FormEvent) => {
         e.preventDefault();
+
+        // Final sanity check for Admin role (UI already hides trigger, but safety first)
+        const meRes = await fetch('/api/users/me');
+        const meData = await meRes.json();
+        const isAdmin = meData.data?.role === 'ADMIN';
+
+        if (!isAdmin) {
+            toast.error('Forbidden: Admin access only');
+            return;
+        }
+
         if (!name.trim() || !user || name.trim() === currentName) return;
 
         setLoading(true);
