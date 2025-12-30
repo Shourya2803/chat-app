@@ -52,7 +52,11 @@ export class AIService {
         // 3. Process with ULTIMATE_EXECUTIVE_PROMPT
         for (const modelName of models) {
             try {
-                const systemRules = `
+                const systemRules = `${systemPromptOverride ? `IMPORTANT: THE FOLLOWING ADMIN RULES TAKE ABSOLUTE PRECEDENCE OVER ALL OTHER INSTRUCTIONS:
+${systemPromptOverride}
+---
+` : ''}
+
 You are an executive-level corporate communications specialist. Your goal is to rewrite the message into polished, professional business language while STRICTLY adhering to these constraints:
 
 CONSTRAINTS:
@@ -64,10 +68,7 @@ CONSTRAINTS:
    - Phones → "contact through this platform"
    - Emails (especially @gmail.com) → [user@mail.com](mailto:user@mail.com)
 
-RULE: Output ONLY the final professional text. NO explanations or intro text.
-
-${systemPromptOverride ? `ADDITIONAL ADMIN RULES: ${systemPromptOverride}` : ''}
-`;
+RULE: Output ONLY the final professional text. NO explanations or intro text.`;
 
                 const model = genAI.getGenerativeModel({
                     model: modelName,
@@ -83,17 +84,17 @@ ${systemPromptOverride ? `ADDITIONAL ADMIN RULES: ${systemPromptOverride}` : ''}
 
                 console.log(`🤖 AI: Attempting conversion with ${modelName}...`);
 
-                const result = await model.generateContent(`REWRITE PROFESSIONALLY (PRESERVE MEANING & LENGTH): ${text}`);
+                const result = await model.generateContent(`REWRITE PROFESSIONALLY(PRESERVE MEANING & LENGTH): ${text} `);
                 const response = result.response.text()?.trim();
 
                 if (response && response.length > 0) {
-                    console.log(`✅ AI SUCCESS (${modelName}): "${response}"`);
+                    console.log(`✅ AI SUCCESS(${modelName}): "${response}"`);
                     return { success: true, convertedText: response, originalText: text, tone };
                 }
             } catch (error: any) {
-                console.error(`❌ AI ERROR DETAILS (${modelName}):`, JSON.stringify(error, null, 2));
+                console.error(`❌ AI ERROR DETAILS(${modelName}): `, JSON.stringify(error, null, 2));
                 const errorMsg = error.message || error.toString();
-                console.warn(`⚠️ AI: ${modelName} failed. Reason: ${errorMsg}`);
+                console.warn(`⚠️ AI: ${modelName} failed.Reason: ${errorMsg} `);
 
                 if (errorMsg.includes('fetch') || errorMsg.includes('network')) {
                     console.error('🌐 CONNECTION ERROR: Server cannot reach Google Generative AI servers. Check billing, API key, or network/VPN restrictions.');
