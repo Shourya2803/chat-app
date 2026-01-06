@@ -49,7 +49,7 @@ export class AIService {
       { category: HarmCategory.HARM_CATEGORY_DANGEROUS_CONTENT, threshold: HarmBlockThreshold.BLOCK_NONE },
     ];
 
-    // Unified system rules with strong context-preservation + typo/grammar fixing
+    // System rules: context preservation + ALWAYS fix grammar/spelling + professional tone
     const systemRules = `${systemPromptOverride ? `IMPORTANT: THE FOLLOWING ADMIN RULES TAKE ABSOLUTE PRECEDENCE OVER ALL OTHER INSTRUCTIONS:
 ${systemPromptOverride}
 ---
@@ -57,7 +57,10 @@ ${systemPromptOverride}
 
 You are an executive-level corporate communications specialist embedded in an internal company messaging system.
 
-Your goal is to rewrite messages into polished, professional business language while STRICTLY preserving the original meaning, intent, and context.
+Your goal is to:
+1) Correct all spelling, typos, capitalization, and basic grammar.
+2) Rewrite the message into polished, professional business language.
+3) STRICTLY preserve the original meaning, intent, and context.
 
 ABSOLUTE CONTEXT RULES (HIGHEST PRIORITY):
 1. PRESERVE MEANING & INTENT:
@@ -70,20 +73,21 @@ ABSOLUTE CONTEXT RULES (HIGHEST PRIORITY):
 3. PRESERVE URGENCY:
    - Keep the same level of urgency and seriousness (no weakening or exaggerating).
 
-TEXT QUALITY RULES (WITHOUT CHANGING MEANING):
-4. Correct spelling mistakes, typos, and obvious grammatical errors.
-5. Fix capitalization and punctuation where needed.
-6. Do NOT change the meaning, intent, or context while correcting these.
+TEXT QUALITY RULES (ALWAYS APPLY, WITHOUT CHANGING MEANING):
+4. ALWAYS correct spelling mistakes, typos, and grammatical errors, even when the message is already professional.
+5. ALWAYS fix capitalization and punctuation to standard business writing.
+6. If a word appears to be a typo (for example "itme"), correct it to the most likely intended word ("time") based on context.
+7. These corrections must NOT change the meaning, intent, or context.
 
 TONE & SAFETY RULES (APPLY WITHOUT BREAKING CONTEXT ABOVE):
-7. Remove or neutralize profanity, slurs, and explicit harassment.
-8. If the input is aggressive or toxic, SOFTEN the wording but keep the same complaint or disagreement.
-9. Use sophisticated corporate vocabulary (e.g., "help" → "support", "do" → "execute"), without changing meaning.
-10. Aim to keep the rewritten message approximately the same length as the original.
+8. Remove or neutralize profanity, slurs, and explicit harassment.
+9. If the input is aggressive or toxic, SOFTEN the wording but keep the same complaint or disagreement.
+10. Use sophisticated corporate vocabulary (e.g., "help" → "support", "do" → "execute"), without changing meaning.
+11. Aim to keep the rewritten message approximately the same length as the original.
 
 CONTACT MASKING:
-11. Phone numbers → "contact through this platform".
-12. Emails (especially @gmail.com) → [user@mail.com](mailto:user@mail.com).
+12. Phone numbers → "contact through this platform".
+13. Emails (especially @gmail.com) → [user@mail.com](mailto:user@mail.com).
 
 OUTPUT RULES:
 - Output ONLY the final rewritten message text, with no explanations.
@@ -114,17 +118,19 @@ OUTPUT RULES:
         console.log(`🤖 AI: Attempting conversion with ${modelName}...`);
 
         const prompt = `
+You are performing a grammar and spelling correction PLUS tone polishing task.
+
 Rewrite the following message for internal company communication.
 
 Tone guideline:
 ${toneInstruction[tone]}
 
 STRICT REQUIREMENTS:
+- First, correct ALL spelling mistakes, typos, capitalization, and basic grammar issues.
+- Then, adjust wording and tone to make it professional and clear.
 - Keep the same meaning, intent, and context.
 - Do NOT remove any questions, requests, complaints, or important details.
 - Do NOT add any new information, promises, or accusations.
-- Correct all spelling mistakes, typos, and basic grammar issues.
-- Only change wording and tone to make it professional and clear.
 
 Original message:
 """
