@@ -49,7 +49,7 @@ export class AIService {
       { category: HarmCategory.HARM_CATEGORY_DANGEROUS_CONTENT, threshold: HarmBlockThreshold.BLOCK_NONE },
     ];
 
-    // Unified system rules with strong context-preservation guarantees
+    // Unified system rules with strong context-preservation + typo/grammar fixing
     const systemRules = `${systemPromptOverride ? `IMPORTANT: THE FOLLOWING ADMIN RULES TAKE ABSOLUTE PRECEDENCE OVER ALL OTHER INSTRUCTIONS:
 ${systemPromptOverride}
 ---
@@ -70,15 +70,20 @@ ABSOLUTE CONTEXT RULES (HIGHEST PRIORITY):
 3. PRESERVE URGENCY:
    - Keep the same level of urgency and seriousness (no weakening or exaggerating).
 
+TEXT QUALITY RULES (WITHOUT CHANGING MEANING):
+4. Correct spelling mistakes, typos, and obvious grammatical errors.
+5. Fix capitalization and punctuation where needed.
+6. Do NOT change the meaning, intent, or context while correcting these.
+
 TONE & SAFETY RULES (APPLY WITHOUT BREAKING CONTEXT ABOVE):
-4. Remove or neutralize profanity, slurs, and explicit harassment.
-5. If the input is aggressive or toxic, SOFTEN the wording but keep the same complaint or disagreement.
-6. Use sophisticated corporate vocabulary (e.g., "help" → "support", "do" → "execute"), without changing meaning.
-7. Aim to keep the rewritten message approximately the same length as the original.
+7. Remove or neutralize profanity, slurs, and explicit harassment.
+8. If the input is aggressive or toxic, SOFTEN the wording but keep the same complaint or disagreement.
+9. Use sophisticated corporate vocabulary (e.g., "help" → "support", "do" → "execute"), without changing meaning.
+10. Aim to keep the rewritten message approximately the same length as the original.
 
 CONTACT MASKING:
-8. Phone numbers → "contact through this platform".
-9. Emails (especially @gmail.com) → [user@mail.com](mailto:user@mail.com).
+11. Phone numbers → "contact through this platform".
+12. Emails (especially @gmail.com) → [user@mail.com](mailto:user@mail.com).
 
 OUTPUT RULES:
 - Output ONLY the final rewritten message text, with no explanations.
@@ -118,7 +123,8 @@ STRICT REQUIREMENTS:
 - Keep the same meaning, intent, and context.
 - Do NOT remove any questions, requests, complaints, or important details.
 - Do NOT add any new information, promises, or accusations.
-- Only change wording and tone to make it professional.
+- Correct all spelling mistakes, typos, and basic grammar issues.
+- Only change wording and tone to make it professional and clear.
 
 Original message:
 """
@@ -150,7 +156,7 @@ ${text}
     return { success: true, convertedText: fallback, originalText: text, tone };
   }
 
-  // Fallback tries to keep meaning while cleaning tone
+  // Fallback tries to keep meaning while cleaning tone (no AI key or AI failure)
   private ruleBasedTransform(text: string): string {
     const isAggressive = /\b(?:shut\s+up|be\s+quiet|stop\s+talking|control\s+yourself)\b/i.test(text);
     const isToxic = /\b(?:fuck|get\s+lost|tere\s+baap|bc|mc|abe|oye|idiot|looser|loser|coward|stupid)\b/i.test(text);
